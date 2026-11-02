@@ -9,7 +9,11 @@ and when you go back to fish, the working directory and environment are still th
 
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2022.18-3c873a?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![fish](https://img.shields.io/badge/fish-%E2%89%A5%204.0-4b8f7f?logo=fish&logoColor=white)](https://fishshell.com)
-[![demo](https://img.shields.io/badge/%E2%96%B6%20asciinema-recording-6f42c1)](docs/demo.cast)
+[![demo](https://img.shields.io/badge/%E2%96%B6%20asciinema-recording-6f42c1)](https://asciinema.org/a/1270822)
+
+<a href="https://asciinema.org/a/1270822" target="_blank"><img src="https://asciinema.org/a/1270822.svg" /></a>
+
+*A real session: zx, the completion menu, a typed const, `cd` — and back in fish.*
 
 </div>
 
@@ -41,16 +45,6 @@ exec fish
 - requires `node >= 22.18` (it runs `.ts` directly — no build step)
 - requires `fish >= 4.0` (developed on 4.9.3)
 - dependencies are managed with yarn berry; there's a `flake.nix`, so `direnv allow` or `nix develop` works too
-
-## Watch the demo
-
-```fish
-asciinema play docs/demo.cast
-```
-
-It's a real session: enter the mode, pull `uname` through zx, pick `_.chunk` from the completion
-menu, write a typed const, `cd("/tmp")`, and land back in fish with the directory in the prompt
-changed from `nodejs-mode.fish` to `tmp`.
 
 ## What's in there
 
@@ -155,5 +149,5 @@ src/output.ts     rendering of errors and values (shared by client and daemon)
 src/args.ts       CLI arguments (node:util parseArgs)
 fish/conf.d/      fish side: bindings, prompt capture, the loop, state write-back, daemon lifecycle
 scripts/          the real-pty regression driver (script + @xterm/headless)
-docs/demo.cast    the asciinema recording above
+docs/demo.cast    the asciinema recording, also at asciinema.org/a/1270822
 ```

@@ -11,7 +11,7 @@ and when you go back to fish, the working directory and environment are still th
 [![fish](https://img.shields.io/badge/fish-%E2%89%A5%204.0-4b8f7f?logo=fish&logoColor=white)](https://fishshell.com)
 [![demo](https://img.shields.io/badge/%E2%96%B6%20asciinema-recording-6f42c1)](https://asciinema.org/a/1270822)
 
-<a href="https://asciinema.org/a/1270822" target="_blank"><img src="https://asciinema.org/a/1270822.svg" /></a>
+[![demo](docs/demo.gif)](https://asciinema.org/a/1270822)
 
 *A real session: zx, the completion menu, a typed const, `cd` — and back in fish.*
 
@@ -149,5 +149,6 @@ src/output.ts     rendering of errors and values (shared by client and daemon)
 src/args.ts       CLI arguments (node:util parseArgs)
 fish/conf.d/      fish side: bindings, prompt capture, the loop, state write-back, daemon lifecycle
 scripts/          the real-pty regression driver (script + @xterm/headless)
-docs/demo.cast    the asciinema recording, also at asciinema.org/a/1270822
+docs/demo.cast    the recording the GIF is generated from (agg docs/demo.cast docs/demo.gif)
+docs/demo.gif     the demo above, also playable at asciinema.org/a/1270822
 ```

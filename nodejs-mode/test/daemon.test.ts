@@ -6,7 +6,9 @@ import { after, describe, it } from "node:test";
 import { Remote } from "../src/remote.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
-const tmp = fs.mkdtempSync(path.join(root, ".tmp", "daemon-test-"));
+const scratch = path.resolve(root, "..", ".tmp");
+fs.mkdirSync(scratch, { recursive: true });
+const tmp = fs.mkdtempSync(path.join(scratch, "daemon-test-"));
 
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -45,7 +47,7 @@ const mode = (p: string): number => {
 };
 
 function start(sock: string, extra: string[] = []): { cp: ChildProcess; output: () => string } {
-  const cp = spawn(process.execPath, [path.join(root, "src/daemon.ts"), "--socket", sock, ...extra], {
+  const cp = spawn(process.execPath, [path.join(root, "dist/daemon.js"), "--socket", sock, ...extra], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let out = "";
@@ -139,7 +141,7 @@ describe("daemon", () => {
   });
 
   it("refuses to run without --socket", async () => {
-    const cp = spawn(process.execPath, [path.join(root, "src/daemon.ts")], { stdio: ["ignore", "pipe", "pipe"] });
+    const cp = spawn(process.execPath, [path.join(root, "dist/daemon.js")], { stdio: ["ignore", "pipe", "pipe"] });
     let err = "";
     cp.stderr.on("data", (d: Buffer) => (err += d.toString()));
     await new Promise((r) => cp.on("exit", r));

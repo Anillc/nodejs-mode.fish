@@ -5,59 +5,48 @@
     systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
     perSystem = { self', pkgs, ... }: {
       devShells.default = pkgs.mkShell {
-        buildInputs = with pkgs; [];
-        nativeBuildInputs = with pkgs; [ yarn-berry nodejs ];
+        nativeBuildInputs = with pkgs; [ nodejs ];
       };
 
-      packages.nodejs-mode = pkgs.stdenv.mkDerivation (finalAttrs: {
+      packages.nodejs-mode-runtime = pkgs.buildNpmPackage {
+        pname = "nodejs-mode-runtime";
+        version = (builtins.fromJSON (builtins.readFile ./nodejs-mode/package.json)).version;
+
+        src = ./nodejs-mode;
+
+        npmDeps = pkgs.importNpmLock { npmRoot = ./nodejs-mode; };
+        npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+      };
+
+      packages.default = pkgs.stdenv.mkDerivation (finalAttrs: {
         pname = "nodejs-mode";
-        version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
+        version = (builtins.fromJSON (builtins.readFile ./nodejs-mode/package.json)).version;
 
         src = pkgs.lib.fileset.toSource {
           root = ./.;
-          fileset = pkgs.lib.fileset.unions [
-            ./package.json ./yarn.lock ./.yarnrc.yml ./src ./fish
-          ];
+          fileset = pkgs.lib.fileset.unions [ ./conf.d ./functions ];
         };
 
-        offlineCache = pkgs.yarn-berry.fetchYarnBerryDeps {
-          inherit (finalAttrs) src;
-          hash = "sha256-HPJ9f/gexskouW0/uLE7Q+iV2OhZBV0/A1yIoM7/z80=";
-        };
-
-        nativeBuildInputs = [ pkgs.yarn-berry.yarnBerryConfigHook pkgs.nodejs pkgs.fish ];
+        nativeBuildInputs = [ pkgs.fish ];
 
         dontBuild = true;
-
         installPhase = ''
           runHook preInstall
 
           mkdir -p $out/share/nodejs-mode.fish
-          cp -r src fish package.json node_modules $out/share/nodejs-mode.fish/
+          cp -r conf.d functions $out/share/nodejs-mode.fish/
+          ln -s ${self'.packages.nodejs-mode-runtime} $out/share/nodejs-mode.fish/nodejs-mode
 
-          substituteInPlace $out/share/nodejs-mode.fish/fish/conf.d/nodejs-mode.fish \
-            --replace-fail 'set -l node (command -s node)' 'set -l node ${pkgs.lib.getExe pkgs.nodejs}'
-
-          mkdir -p $out/share/fish/vendor_conf.d
-          ln -s $out/share/nodejs-mode.fish/fish/conf.d/nodejs-mode.fish \
+          mkdir -p $out/share/fish/vendor_conf.d $out/share/fish/vendor_functions.d
+          ln -s $out/share/nodejs-mode.fish/conf.d/nodejs-mode.fish \
                 $out/share/fish/vendor_conf.d/nodejs-mode.fish
+          for f in $out/share/nodejs-mode.fish/functions/*.fish; do
+            ln -s "$f" $out/share/fish/vendor_functions.d/
+          done
 
           runHook postInstall
         '';
-
-        doInstallCheck = true;
-        installCheckPhase = ''
-          fish -c '
-            source $out/share/fish/vendor_conf.d/nodejs-mode.fish
-            test -n "$__nodejs_mode_root"; or begin; echo "no root"; exit 1; end
-            test -f "$__nodejs_mode_root/src/daemon.ts"; or begin; echo "no daemon"; exit 1; end
-            test -f "$__nodejs_mode_root/node_modules/zx/package.json"; or begin; echo "no zx"; exit 1; end
-          '
-        '';
       });
-
-      packages.default = self'.packages.nodejs-mode;
-      checks.default = self'.packages.nodejs-mode;
     };
   };
 }

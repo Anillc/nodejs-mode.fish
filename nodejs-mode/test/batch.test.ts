@@ -6,8 +6,10 @@ import path from "node:path";
 import { escapeShellWord } from "../src/fish.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
-const boot = path.join(root, "src/boot.ts");
-const tmp = fs.mkdtempSync(path.join(root, ".tmp", "batch-"));
+const scratch = path.resolve(root, "..", ".tmp");
+fs.mkdirSync(scratch, { recursive: true });
+const boot = path.join(root, "dist/boot.js");
+const tmp = fs.mkdtempSync(path.join(scratch, "batch-"));
 const sock = path.join(tmp, "run.sock");
 
 let daemon: ReturnType<typeof spawn> | null = null;
@@ -44,7 +46,7 @@ const launch = (args: string[], input?: string): Run =>
 const batch = (code: string): Run => launch(["-c", code]);
 
 before(async () => {
-  daemon = spawn(process.execPath, [path.join(root, "src/daemon.ts"), "--socket", sock], { stdio: "ignore" });
+  daemon = spawn(process.execPath, [path.join(root, "dist/daemon.js"), "--socket", sock], { stdio: "ignore" });
   assert.ok(await waitFor(() => isSocket(sock)), "daemon did not come up");
 });
 

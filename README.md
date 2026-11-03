@@ -37,14 +37,15 @@ nodejs-mode.fish  via node v24.21.0
 ## Install
 
 ```fish
-yarn install
-ln -s (realpath fish/conf.d/nodejs-mode.fish) ~/.config/fish/conf.d/
+npm --prefix nodejs-mode install
+npm --prefix nodejs-mode run build
+ln -s (realpath conf.d/nodejs-mode.fish) ~/.config/fish/conf.d/
 exec fish
 ```
 
-- requires `node >= 22.18` (it runs `.ts` directly — no build step)
+- requires `node >= 22.18`; `npm run build` compiles `src/` to `dist/` with tsc
 - requires `fish >= 4.0` (developed on 4.9.3)
-- dependencies are managed with yarn berry; there's a `flake.nix`, so `direnv allow` or `nix develop` works too
+- dependencies are managed with npm; there's a `flake.nix`, so `direnv allow` or `nix develop` works too
 
 ## What's in there
 
@@ -129,15 +130,16 @@ unix socket.
 ## Development
 
 ```fish
-yarn typecheck        # tsc --noEmit
-yarn test             # node --test
+npm --prefix nodejs-mode run build         # tsc -> dist/
+npm --prefix nodejs-mode run typecheck     # tsc --noEmit
+npm --prefix nodejs-mode test          # build + node --test
 ```
 
 pty regression (drives a real fish in a pty and dumps the screen):
 
 ```fish
-node scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]'
-node scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]' two vi
+node nodejs-mode/scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]'
+node nodejs-mode/scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]' two vi
 ```
 
 `\u0018` is `Ctrl-X`, `\u0004` is `Ctrl-D`; the third argument `two` / `three` switches to a multi-line
@@ -152,25 +154,31 @@ can't be judged there** — check it in a real terminal.
 ## Layout
 
 ```
-src/boot.ts       entry: -c, or the header + js ❯ first, then loads everything else (first-paint latency)
-src/batch.ts      -c/-f: run once through the session daemon, print the value, exit 0/1
-src/cli.ts        the client: connect, raw mode, key loop, redraw, exit, state write-back
-src/editor.ts     line buffer + key handling + history
-src/highlight.ts  Lezer parsing + shell-fragment colouring + top-level await rewrite + name collection
-src/fish.ts       fish's own completion (complete -C) and shell quoting, for $`…`
-src/render.ts     everything ANSI: prompt, colours, wrapping, cursor placement, completion menu
-src/keys.ts       byte stream -> key events
-src/width.ts      display width (string-width)
-src/eval.ts       persistent context + zx shell + require/cd + AbortSignal (runs inside the daemon)
-src/ts.ts         strip TypeScript types + rewrite static imports
-src/daemon.ts     the per-session daemon: socket, pid file, cwd/env state, abort
-src/remote.ts     client side: NDJSON connection + local spawn
-src/protocol.ts   message types + the stand-in for a remote ChildProcess
-src/state.ts      turns the cwd/env diff into fish code / applies an env snapshot
-src/output.ts     rendering of errors and values (shared by client and daemon)
-src/args.ts       CLI arguments (node:util parseArgs)
-fish/conf.d/      fish side: bindings, the nodejs-mode command, prompt capture, the loop, daemon lifecycle
-scripts/          the real-pty regression driver (script + @xterm/headless)
-docs/demo.cast    the recording the GIF is generated from (agg docs/demo.cast docs/demo.gif)
-docs/demo.gif     the demo above, also playable at asciinema.org/a/1270822
+conf.d/            startup: repo root, the autoload path, the Ctrl-X binding, fish_exit cleanup
+functions/         autoloaded: nodejs-mode, nodejs-mode-enter, the __nodejs_mode_* helpers
+nodejs-mode/       the node package (npm, tsc)
+  bin/             nodejs-mode / nodejs-mode-daemon launchers
+  dist/            tsc output, built not committed
+  src/boot.ts      entry: -c, or the header + js ❯ first, then loads everything else
+  src/batch.ts     -c/-f: run once through the session daemon, print the value, exit 0/1
+  src/cli.ts       the client: connect, raw mode, key loop, redraw, exit, state write-back
+  src/editor.ts    line buffer + key handling + history
+  src/highlight.ts Lezer parsing + shell-fragment colouring + await rewrite + name collection
+  src/fish.ts      fish's own completion (complete -C) and shell quoting, for $`…`
+  src/render.ts    everything ANSI: prompt, colours, wrapping, cursor placement, menu
+  src/keys.ts      byte stream -> key events
+  src/width.ts     display width (string-width)
+  src/eval.ts      persistent context + zx shell + require/cd + AbortSignal (in the daemon)
+  src/ts.ts        strip TypeScript types + rewrite static imports
+  src/daemon.ts    the per-session daemon: socket, pid file, cwd/env state, abort
+  src/remote.ts    client side: NDJSON connection + local spawn
+  src/protocol.ts  message types + the stand-in for a remote ChildProcess
+  src/state.ts     turns the cwd/env diff into fish code / applies an env snapshot
+  src/output.ts    rendering of errors and values (shared by client and daemon)
+  src/args.ts      CLI arguments (node:util parseArgs)
+  test/            node --test
+  scripts/         the real-pty regression driver (script + @xterm/headless)
+docs/demo.cast     the recording the GIF is generated from (agg docs/demo.cast docs/demo.gif)
+docs/demo.gif      the demo above, also playable at asciinema.org/a/1270822
+flake.nix          two packages: nodejs-mode-runtime (the node side) and nodejs-mode (this plugin)
 ```

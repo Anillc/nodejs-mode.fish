@@ -1,5 +1,6 @@
 /.direnv
 /result
+/result-*
 /.tmp
-/.yarn
-/node_modules
+/nodejs-mode/dist
+/nodejs-mode/node_modules

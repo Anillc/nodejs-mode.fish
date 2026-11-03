@@ -5,17 +5,19 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
+const scratch = path.resolve(root, "..", ".tmp");
+fs.mkdirSync(scratch, { recursive: true });
 const hasFish = spawnSync("fish", ["--version"], { stdio: "ignore" }).status === 0;
 
 const runFish = (dir: string, body: string): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } =>
-  spawnSync("fish", ["-c", `set -gx NODEJS_MODE_RUNTIME_DIR ${dir}\nsource ${path.join(root, "fish/conf.d/nodejs-mode.fish")}\n${body}`], {
+  spawnSync("fish", ["-c", `set -gx NODEJS_MODE_RUNTIME_DIR ${dir}\nsource ${path.join(root, "../conf.d/nodejs-mode.fish")}\n${body}`], {
     encoding: "utf8",
     timeout: 20000,
   }) as ReturnType<typeof spawnSync> & { stdout: string; stderr: string };
 
 describe("fish plugin", { skip: hasFish ? false : "fish not installed" }, () => {
   it("reuses a live daemon instead of starting another", () => {
-    const dir = fs.mkdtempSync(path.join(root, ".tmp", "fish-"));
+    const dir = fs.mkdtempSync(path.join(scratch, "fish-"));
     const script = `
       set -l s1 (__nodejs_mode_ensure_daemon); or exit 11
       __nodejs_mode_daemon_alive $s1; or exit 12
@@ -23,7 +25,7 @@ describe("fish plugin", { skip: hasFish ? false : "fish not installed" }, () => 
       set -l s3 (__nodejs_mode_ensure_daemon); or exit 14
       test "$s1" = "$s2"; or exit 15
       test "$s2" = "$s3"; or exit 16
-      set -l n (pgrep -f "daemon.ts --socket \$s1" | count)
+      set -l n (pgrep -f "nodejs-mode-daemon --socket \$s1" | count)
       echo "ok daemons=\$n"
     `;
     try {
@@ -36,7 +38,7 @@ describe("fish plugin", { skip: hasFish ? false : "fish not installed" }, () => 
   });
 
   it("runs code and files through the session daemon", () => {
-    const dir = fs.mkdtempSync(path.join(root, ".tmp", "fish-run-"));
+    const dir = fs.mkdtempSync(path.join(scratch, "fish-run-"));
     const file = path.join(dir, "s.ts");
     fs.writeFileSync(file, 'const who: string = "file"\nwho + " ok"\n');
     const body = `
@@ -46,7 +48,7 @@ describe("fish plugin", { skip: hasFish ? false : "fish not installed" }, () => 
       echo '40 + 2' | nodejs-mode; or exit 24
       nodejs-mode ${file}; or exit 25
       set -l sock (__nodejs_mode_socket)
-      set -l n (pgrep -f "daemon.ts --socket \$sock" | count)
+      set -l n (pgrep -f "nodejs-mode-daemon --socket \$sock" | count)
       test $n -eq 1; or exit 26
     `;
     try {

@@ -7,7 +7,7 @@ const { Terminal } = xterm;
 
 const COLS = 80;
 const ROWS = 30;
-const root = path.resolve(import.meta.dirname, "..");
+const root = path.resolve(import.meta.dirname, "../..");
 const tmp = path.join(root, ".tmp", "pty");
 fs.rmSync(tmp, { recursive: true, force: true });
 for (const d of ["config", "data", "state", "tmp", "home", "run"]) fs.mkdirSync(path.join(tmp, d), { recursive: true });
@@ -22,7 +22,7 @@ fs.writeFileSync(
     "    set_color normal",
     process.argv[3] === "nl" ? "    printf ' \\n\u276f \\n'" : process.argv[3] === "wide" ? "    printf '%s \u276f ' (string repeat -n 90 x)" : process.argv[3] === "three" ? "    printf ' \\nsecond\\n\u276f '" : process.argv[3] === "two" ? "    printf ' \\n\u276f '" : "    printf ' \u276f '",
     "end",
-    `source ${process.env.PTY_PLUGIN ?? path.join(root, "fish/conf.d/nodejs-mode.fish")}`,
+    `source ${process.env.PTY_PLUGIN ?? path.join(root, "conf.d/nodejs-mode.fish")}`,
     process.argv[4] === "vi" ? "fish_vi_key_bindings" : "",
     "",
   ].join("\n"),

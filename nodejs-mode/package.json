@@ -3,13 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "yarn@4.18.0",
+  "packageManager": "npm@11.19.0",
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts"
+    "test": "tsc -p tsconfig.build.json && node --test test/*.test.ts"
   },
   "dependencies": {
     "@lezer/highlight": "^1.2.5",
@@ -26,5 +27,13 @@
     "@types/shelljs": "^0.10.0",
     "@xterm/headless": "^6.0.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "bin": {
+    "nodejs-mode": "bin/nodejs-mode",
+    "nodejs-mode-daemon": "bin/nodejs-mode-daemon"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ]
 }

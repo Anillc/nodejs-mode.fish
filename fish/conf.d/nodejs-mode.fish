@@ -207,6 +207,41 @@ function nodejs-mode-enter --description "run the node.js repl in place (Ctrl-X)
     return 0
 end
 
+function nodejs-mode --description "run js/ts through this session's daemon; no args enters the repl (same as Ctrl-X)"
+    if test (count $argv) -eq 0
+        if test -t 0
+            nodejs-mode-enter
+            return 0
+        end
+        set argv -f -
+    end
+
+    set -l node (command -s node)
+    if test -z "$node"
+        printf '\e[31mnodejs-mode: node not found in PATH\e[0m\n' >&2
+        return 1
+    end
+
+    # nodejs-mode script.ts -> -f；别的原样交给 boot（-c / --code / …）
+    set -l opts $argv
+    if not string match -q -- '-*' $argv[1]
+        if test -f $argv[1]
+            set opts -f $argv[1] $argv[2..-1]
+        else if string match -q -- '*.ts' '*.js' '*.mjs' '*.cjs' $argv[1]
+            printf '\e[31mnodejs-mode: no such file: %s\e[0m\n' $argv[1] >&2
+            return 1
+        else
+            set opts -c (string join ' ' -- $argv)
+        end
+    end
+
+    # 没有就现开一个；这个 daemon 之后 Ctrl-X 直接接着用
+    set -l sock (__nodejs_mode_ensure_daemon)
+    test -n "$sock"; or return 1
+
+    command $node $__nodejs_mode_root/src/boot.ts --socket $sock $opts
+end
+
 function __nodejs_mode_bind --description "bind Ctrl-X to node.js mode"
     bind \cx nodejs-mode-enter
     bind -M insert \cx nodejs-mode-enter

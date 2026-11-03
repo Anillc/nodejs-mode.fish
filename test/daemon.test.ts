@@ -36,6 +36,14 @@ const exists = (p: string): boolean => {
   }
 };
 
+const mode = (p: string): number => {
+  try {
+    return fs.statSync(p).mode & 0o777;
+  } catch {
+    return -1;
+  }
+};
+
 function start(sock: string, extra: string[] = []): { cp: ChildProcess; output: () => string } {
   const cp = spawn(process.execPath, [path.join(root, "src/daemon.ts"), "--socket", sock, ...extra], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -56,9 +64,9 @@ describe("daemon", () => {
     try {
       assert.ok(await waitFor(() => isSocket(sock)), "socket did not appear");
       const pidPath = `${sock}.pid`;
-      assert.ok(exists(pidPath), "pidfile missing");
+      assert.ok(await waitFor(() => exists(pidPath)), "pidfile missing");
       assert.equal(Number(fs.readFileSync(pidPath, "utf8").trim()), cp.pid);
-      assert.equal(fs.statSync(sock).mode & 0o777, 0o600);
+      assert.ok(await waitFor(() => mode(sock) === 0o600), "socket is not 0600");
 
       cp.kill("SIGTERM");
       await waitFor(() => cp.exitCode !== null);

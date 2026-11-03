@@ -13,6 +13,7 @@ export class Remote {
   private waiter: (() => void) | null = null;
   private failer: ((e: Error) => void) | null = null;
   private last: { cwd: string; env: Record<string, string | undefined> } | null = null;
+  private status: { ok: boolean; code: number } = { ok: true, code: 0 };
   private reqId = 0;
   private readonly completing = new Map<number, (items: string[]) => void>();
   private closed = false;
@@ -82,6 +83,7 @@ export class Remote {
       }
       case "done":
         this.last = { cwd: msg.cwd, env: msg.env };
+        this.status = { ok: msg.ok, code: msg.code };
         this.waiter?.();
         this.waiter = null;
         this.failer = null;
@@ -116,6 +118,11 @@ export class Remote {
     return this.last;
   }
 
+  // 上一条命令的结果：ok 表示没抛错，code 是它设置的退出码
+  get lastStatus(): { ok: boolean; code: number } {
+    return this.status;
+  }
+
   complete(word: string, base?: string): Promise<string[]> {
     if (this.closed) return Promise.resolve([]);
     const id = ++this.reqId;
@@ -133,10 +140,10 @@ export class Remote {
     return this.closed;
   }
 
-  async eval(code: string, cwd: string, env: NodeJS.ProcessEnv, onOut: OutputFn): Promise<void> {
+  async eval(code: string, cwd: string, env: NodeJS.ProcessEnv, onOut: OutputFn, colors = true): Promise<void> {
     if (this.closed) throw new Error("daemon is not connected");
     this.onOut = onOut;
-    this.send({ t: "hello", cwd, env: { ...env } });
+    this.send({ t: "hello", cwd, env: { ...env }, colors });
     this.send({ t: "eval", code });
     await new Promise<void>((resolve, reject) => {
       this.waiter = resolve;

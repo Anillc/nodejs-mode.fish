@@ -49,6 +49,8 @@ const evaluator = new Evaluator({
 evaluator.install();
 
 let activeAbort: AbortController | null = null;
+// 连上来的那一侧是不是终端：-c 走管道的时候不要吐颜色
+let colors = true;
 
 async function handleEval(code: string, send: Send): Promise<void> {
   const ac = new AbortController();
@@ -62,13 +64,16 @@ async function handleEval(code: string, send: Send): Promise<void> {
   try {
     const value = await evaluator.run(code, ac);
     if (!isProcessOutput(value)) {
-      const text = formatResult(value, true, isExpressionResult(code));
+      const text = formatResult(value, colors, isExpressionResult(code));
       if (text) sink("stdout", text);
     }
-    send({ t: "done", ok: true, cwd: process.cwd(), env: { ...process.env } });
+    const status = typeof process.exitCode === "number" ? process.exitCode : 0;
+    process.exitCode = 0;
+    send({ t: "done", ok: true, code: status, cwd: process.cwd(), env: { ...process.env } });
   } catch (e) {
-    sink("stdout", formatError(e));
-    send({ t: "done", ok: false, cwd: process.cwd(), env: { ...process.env } });
+    sink("stderr", formatError(e, colors));
+    process.exitCode = 0;
+    send({ t: "done", ok: false, code: 1, cwd: process.cwd(), env: { ...process.env } });
   } finally {
     ac.signal.removeEventListener("abort", onAbort);
     if (activeAbort === ac) activeAbort = null;
@@ -88,6 +93,7 @@ function handle(msg: ClientMessage, send: Send): void {
         /* keep the old cwd */
       }
       applyEnv(msg.env);
+      colors = msg.colors !== false;
       break;
     case "eval":
       void handleEval(msg.code, send);

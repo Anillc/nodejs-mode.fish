@@ -72,6 +72,25 @@ exec fish
 | `Up` / `Down` | history (stored separately from fish's) |
 | `Ctrl-A/E/B/F/K/U/W` | line editing |
 
+## Batch mode
+
+`nodejs-mode` is also a command: the same entry point as `Ctrl-X`, usable anywhere in fish.
+
+```console
+$ nodejs-mode                     # enter the repl (same as Ctrl-X)
+$ nodejs-mode -c '1 + 1'          # one command
+2
+$ nodejs-mode build.ts            # one file — "$", "_", shelljs and TypeScript included
+$ echo '40 + 2' | nodejs-mode     # code on stdin
+42
+```
+
+It always goes through the session daemon — the same one `Ctrl-X` uses: if there isn't one yet, the fish
+function starts it exactly the way `Ctrl-X` would, and `Ctrl-X` later picks it up with the state the script
+left behind. `-c <code>` and `-f <file>` (or `-f -` for stdin) are the flags underneath; `boot.ts` itself
+takes `--socket`, which is what the fish function hands it. There is no in-process mode: a command without a
+daemon to talk to is an error, not a second way to run code.
+
 ## Why every command goes back to fish
 
 Each command is a short-lived node process: connect to the daemon, evaluate, exit — then fish redraws
@@ -100,6 +119,7 @@ unix socket.
 - If the daemon dies, the command in flight is lost (you get a notice, exit 43, and fish restarts it) — retype it.
 - An interactive child in capture mode (`const o = await $`vim``) degrades to a dumb terminal, because stdout is a pipe.
 - Anything that reads stdin, like `question()`, doesn't work: the daemon's stdin is `/dev/null`.
+- A script run through the daemon that calls `process.exit()` takes the daemon down with it; the next command starts a new one.
 - The daemon runs the code it was started with, so restart fish after editing the repo.
 - TypeScript is handled lazily (compile as JS first, strip types only if that fails), so the source snippet in a TS error is the transformed one.
 - If `fish_prompt` is wider than the terminal (it wraps), entering/exiting leaves half of the old prompt above the block.
@@ -132,7 +152,8 @@ can't be judged there** — check it in a real terminal.
 ## Layout
 
 ```
-src/boot.ts       entry: paints the header + js ❯ first, then loads everything else (first-paint latency)
+src/boot.ts       entry: -c, or the header + js ❯ first, then loads everything else (first-paint latency)
+src/batch.ts      -c/-f: run once through the session daemon, print the value, exit 0/1
 src/cli.ts        the client: connect, raw mode, key loop, redraw, exit, state write-back
 src/editor.ts     line buffer + key handling + history
 src/highlight.ts  Lezer parsing + shell-fragment colouring + top-level await rewrite + name collection
@@ -148,7 +169,7 @@ src/protocol.ts   message types + the stand-in for a remote ChildProcess
 src/state.ts      turns the cwd/env diff into fish code / applies an env snapshot
 src/output.ts     rendering of errors and values (shared by client and daemon)
 src/args.ts       CLI arguments (node:util parseArgs)
-fish/conf.d/      fish side: bindings, prompt capture, the loop, state write-back, daemon lifecycle
+fish/conf.d/      fish side: bindings, the nodejs-mode command, prompt capture, the loop, daemon lifecycle
 scripts/          the real-pty regression driver (script + @xterm/headless)
 docs/demo.cast    the recording the GIF is generated from (agg docs/demo.cast docs/demo.gif)
 docs/demo.gif     the demo above, also playable at asciinema.org/a/1270822

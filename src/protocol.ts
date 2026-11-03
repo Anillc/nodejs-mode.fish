@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 export type ClientMessage =
-  | { t: "hello"; cwd: string; env: Record<string, string | undefined> }
+  | { t: "hello"; cwd: string; env: Record<string, string | undefined>; colors?: boolean }
   | { t: "eval"; code: string }
   | { t: "abort" }
   | { t: "complete"; id: number; word: string; base?: string }
@@ -16,7 +16,7 @@ export type DaemonMessage =
   | { t: "spawn"; id: number; cmd: string; args: string[]; opts: SpawnOpts }
   | { t: "spawn-kill"; id: number; signal?: string }
   | { t: "spawn-stdin"; id: number; data: string }
-  | { t: "done"; ok: boolean; cwd: string; env: Record<string, string | undefined> }
+  | { t: "done"; ok: boolean; code: number; cwd: string; env: Record<string, string | undefined> }
   | { t: "completions"; id: number; items: string[] };
 
 export interface SpawnOpts {

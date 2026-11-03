@@ -4,16 +4,17 @@ export function isProcessOutput(e: unknown): boolean {
   return typeof e === "object" && e !== null && "exitCode" in e && "stdout" in e && "stderr" in e;
 }
 
-export function formatError(e: unknown): string {
-  if (isProcessOutput(e)) return `${red(`exit ${(e as { exitCode: number | null }).exitCode}`)}\n`;
+export function formatError(e: unknown, colors = true): string {
+  const paint = (s: string): string => (colors ? red(s) : s);
+  if (isProcessOutput(e)) return `${paint(`exit ${(e as { exitCode: number | null }).exitCode}`)}\n`;
   if (e instanceof Error) {
-    if ((e as NodeJS.ErrnoException).code) return `${red(`${e.name}: ${e.message}`)}\n`;
+    if ((e as NodeJS.ErrnoException).code) return `${paint(`${e.name}: ${e.message}`)}\n`;
     const lines = (e.stack ?? `${e.name}: ${e.message}`)
       .split("\n")
       .filter((l) => !l.trimStart().startsWith("at "));
-    return `${red(lines.slice(0, 8).join("\n").trimEnd())}\n`;
+    return `${paint(lines.slice(0, 8).join("\n").trimEnd())}\n`;
   }
-  return `${red(String(e))}\n`;
+  return `${paint(String(e))}\n`;
 }
 
 const withNewline = (s: string): string => (s.endsWith("\n") ? s : `${s}\n`);

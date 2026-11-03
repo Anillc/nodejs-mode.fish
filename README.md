@@ -56,7 +56,7 @@ exec fish
 | **TypeScript** | type annotations, `enum`, `import type` — powered by Node's own `stripTypeScriptTypes`; no tsx or esbuild needed |
 | **import** | a static `import x from "y"` is rewritten to `await import()`; dynamic `import()` resolves from the cwd; `require("./x.ts")` works too |
 | **cwd / env** | changes made by `cd()` and `process.env` are written back to fish; a `cd` you do in fish is picked up when you re-enter |
-| **Completion** | Tab: declared names, globals, properties after `obj.`, and paths; multiple candidates are listed under the input line and Tab cycles through them (the current one is inverted) |
+| **Completion** | Tab: declared names, globals, properties after `obj.`, and paths; multiple candidates are listed under the input line and Tab cycles through them (the current one is inverted). Inside `` $`...` `` it hands over to fish, so commands, flags and files come with their descriptions |
 | **State** | one daemon per fish session keeps variables and functions across commands, and is cleaned up on `fish_exit` |
 
 ## Keys
@@ -68,7 +68,7 @@ exec fish
 | `Enter` (completion menu open) | accept the highlighted candidate and close the menu, **without running it** — press again to run (same as fish) |
 | `Enter` on an empty line | open a fresh `js ❯` line, stay in the mode |
 | `Ctrl-C` | keep what you typed, add `^C`, start a new line; while evaluating, it kills the command's child processes |
-| `Tab` | completion (see above) |
+| `Tab` | completion (see above) — inside `` $`...` `` fish completes it |
 | `Up` / `Down` | history (stored separately from fish's) |
 | `Ctrl-A/E/B/F/K/U/W` | line editing |
 
@@ -136,6 +136,7 @@ src/boot.ts       entry: paints the header + js ❯ first, then loads everything
 src/cli.ts        the client: connect, raw mode, key loop, redraw, exit, state write-back
 src/editor.ts     line buffer + key handling + history
 src/highlight.ts  Lezer parsing + shell-fragment colouring + top-level await rewrite + name collection
+src/fish.ts       fish's own completion (complete -C) and shell quoting, for $`…`
 src/render.ts     everything ANSI: prompt, colours, wrapping, cursor placement, completion menu
 src/keys.ts       byte stream -> key events
 src/width.ts      display width (string-width)

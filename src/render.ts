@@ -1,5 +1,5 @@
 import { cursorForward, cursorTo, cursorUp, eraseDown } from "ansi-escapes";
-import { charWidth, stringWidth } from "./width.ts";
+import { charWidth, clip, stringWidth } from "./width.ts";
 import type { Token, TokenType } from "./highlight.ts";
 
 export const PROMPT_TEXT = "js \u276f ";
@@ -101,18 +101,45 @@ export function paintRow(text: string, tokens: Token[], row: Row): PaintedRow {
   return { text: out, width };
 }
 
-// 补全菜单：按列铺开，选中的一格反色
-export function menuLines(items: string[], selected: number, cols: number): string[] {
+export interface MenuItem {
+  text: string;
+  desc?: string;
+}
+
+const MENU_ROWS = 8;
+
+const pad = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - stringWidth(text)));
+
+// 补全菜单：带描述时一行一个（像 fish 的 pager），否则按列铺开，选中的那格反色
+export function menuLines(items: MenuItem[], selected: number, cols: number): string[] {
   if (!items.length) return [];
-  const colWidth = Math.min(Math.max(...items.map((item) => stringWidth(item))) + 2, cols);
+
+  if (items.some((item) => item.desc)) {
+    const textCols = Math.min(Math.max(...items.map((item) => stringWidth(item.text))) + 2, cols);
+    // 候选可能上百个（git 就这样），窗口跟着选中项走
+    const top = Math.max(0, Math.min(selected - MENU_ROWS + 1, items.length - MENU_ROWS));
+    const shown = items.slice(top, top + MENU_ROWS);
+    const lines = shown.map((item, i) => {
+      const text = pad(clip(item.text, textCols), textCols);
+      const head = top + i === selected ? `\u001b[7m${text}\u001b[0m` : text;
+      const room = cols - textCols - 1;
+      const desc = item.desc && room > 2 ? clip(item.desc, room) : "";
+      return desc ? `${head}\u001b[2m${desc}\u001b[0m` : head.trimEnd();
+    });
+    if (top > 0) lines.unshift("…");
+    if (top + shown.length < items.length) lines.push("…");
+    return lines;
+  }
+
+  const colWidth = Math.min(Math.max(...items.map((item) => stringWidth(item.text))) + 2, cols);
   const perRow = Math.max(1, Math.floor(cols / colWidth));
-  const shown = items.slice(0, perRow * 8);
+  const shown = items.slice(0, perRow * MENU_ROWS);
   const lines: string[] = [];
   for (let i = 0; i < shown.length; i += perRow) {
     const line = shown
       .slice(i, i + perRow)
       .map((item, k) => {
-        const cell = item + " ".repeat(Math.max(0, colWidth - stringWidth(item)));
+        const cell = pad(clip(item.text, colWidth), colWidth);
         return i + k === selected ? `\u001b[7m${cell}\u001b[0m` : cell;
       })
       .join("")

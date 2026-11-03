@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { highlight, hasTopLevelAwait, isComplete, referencedNames, wrapForAwait } from "../src/highlight.ts";
+import { highlight, hasTopLevelAwait, isComplete, referencedNames, shellAt, wrapForAwait } from "../src/highlight.ts";
 import { layout, locate, menuLines, paintRow, THEME } from "../src/render.ts";
 import { stringWidth } from "../src/width.ts";
 import { PROMPT_TEXT, PROMPT_COLS } from "../src/render.ts";
@@ -36,6 +36,17 @@ test("javascript outside the island is highlighted", () => {
 test("plain template is not shell", () => {
   const k = kinds("x = `ls -la`");
   assert.ok(!k.some((t) => t.startsWith("sh-")), k.join(" "));
+});
+
+test("shellAt finds the shell segment under the cursor", () => {
+  const open = "await $`git ch";
+  assert.deepEqual(shellAt(open, open.length), { start: 8, end: 14 });
+  const closed = "const x = $`git ch`";
+  assert.deepEqual(shellAt(closed, closed.indexOf("h`") + 1), { start: 12, end: 18 });
+  assert.equal(shellAt(closed, closed.length), null, "just after the closing backtick is javascript");
+  assert.equal(shellAt("x = `ls`", 6), null, "a plain template is not shell");
+  const interp = "$`echo ${name} x`";
+  assert.equal(shellAt(interp, interp.indexOf("name") + 1), null, "interpolation is javascript");
 });
 
 test("incomplete input detection", () => {
@@ -93,10 +104,21 @@ test("each token is painted with its theme", () => {
 
 test("completion menu lays out columns and marks the selection", () => {
   assert.deepEqual(menuLines([], 0, 40), []);
-  const one = menuLines(["chain", "chunk"], 1, 40);
+  const one = menuLines([{ text: "chain" }, { text: "chunk" }], 1, 40);
   assert.equal(one.length, 1);
   assert.match(one[0]!, /^chain\s+\u001b\[7mchunk\s*\u001b\[0m$/);
-  assert.equal(menuLines(["a", "b", "c"], 0, 6).length, 2);
+  assert.equal(menuLines([{ text: "a" }, { text: "b" }, { text: "c" }], 0, 6).length, 2);
+});
+
+test("descriptions put the menu on one item per line", () => {
+  const items = [
+    { text: "checkout", desc: "Switch branches" },
+    { text: "cherry-pick", desc: "Apply a commit" },
+  ];
+  const lines = menuLines(items, 0, 60);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0]!, /^\u001b\[7mcheckout\s+\u001b\[0m\u001b\[2mSwitch branches/);
+  assert.match(lines[1]!, /^cherry-pick\s+\u001b\[2mApply a commit/);
 });
 
 test("key decoder handles escape sequences and paste", () => {

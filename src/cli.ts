@@ -6,8 +6,19 @@ import { args } from "./args.ts";
 import { Editor } from "./editor.ts";
 import { Remote } from "./remote.ts";
 import { KeyDecoder } from "./keys.ts";
-import { highlight } from "./highlight.ts";
-import { Canvas, headerLines, layout, locate, menuLines, paintRow, PROMPT_ANSI, PROMPT_COLS } from "./render.ts";
+import { highlight, shellAt } from "./highlight.ts";
+import { escapeShellWord, openQuote, shellCompletions } from "./fish.ts";
+import {
+  Canvas,
+  headerLines,
+  layout,
+  locate,
+  menuLines,
+  paintRow,
+  PROMPT_ANSI,
+  PROMPT_COLS,
+  type MenuItem,
+} from "./render.ts";
 import { applyEnv, stateCode } from "./state.ts";
 import { formatError, yellow } from "./output.ts";
 import { stringWidth } from "./width.ts";
@@ -82,9 +93,14 @@ function seedCode(s: string): string {
   return `$\u0060${body}\u0060`;
 }
 
-function pathCompletion(text: string, cursor: number): string | null {
+function wordStartAt(text: string, cursor: number): number {
   let start = cursor;
   while (start > 0 && !/[\s'"`|;&<>()]/.test(text[start - 1]!)) start--;
+  return start;
+}
+
+function pathCompletion(text: string, cursor: number): string | null {
+  const start = wordStartAt(text, cursor);
   const word = text.slice(start, cursor);
   if (!word) return null;
   const cut = word.lastIndexOf("/");
@@ -206,7 +222,7 @@ function startLine(): void {
 }
 
 // Tab：单个候选直接补；多个补到公共前缀，补不动就把候选列在输入行下面，再按 Tab 循环选中
-let menu: { items: string[]; selected: number; start: number; length: number; text: string; cursor: number } | null = null;
+let menu: { items: MenuItem[]; selected: number; start: number; length: number; text: string; cursor: number } | null = null;
 
 function applyCompletion(start: number, length: number, fill: string): void {
   const text = editor.text;
@@ -221,14 +237,24 @@ async function complete(): Promise<void> {
   if (menu && menu.text === text && menu.cursor === cursor) {
     menu.selected = (menu.selected + 1) % menu.items.length;
     const item = menu.items[menu.selected]!;
-    applyCompletion(menu.start, menu.length, item);
-    menu.length = item.length;
+    applyCompletion(menu.start, menu.length, item.text);
+    menu.length = item.text.length;
     menu.text = editor.text;
     menu.cursor = editor.cursor;
     redraw();
     return;
   }
   menu = null;
+
+  // 在 $`…` 里交给 fish：命令、选项、文件都是它更清楚
+  const shell = shellAt(text, cursor);
+  if (shell) {
+    const line = text.slice(shell.start, cursor);
+    if (line.trim()) {
+      await completeInShell(line, wordStartAt(text, cursor));
+      return;
+    }
+  }
 
   const word = /[\w$]*$/.exec(text.slice(0, cursor))![0];
   const start = cursor - word.length;
@@ -237,13 +263,12 @@ async function complete(): Promise<void> {
   if (member) {
     const base = /[\w$.]+$/.exec(text.slice(0, start - 1))?.[0];
     if (!base) return;
-    completeNames(start, word, await remote.complete(word, base));
+    openMenu(start, word, (await remote.complete(word, base)).map((name) => ({ text: name })));
     return;
   }
 
   // 整段 token（带引号/斜杠的那截）用来判断是不是在补路径
-  let tokenStart = start;
-  while (tokenStart > 0 && !/[\s'"`|;&<>()]/.test(text[tokenStart - 1]!)) tokenStart--;
+  const tokenStart = wordStartAt(text, cursor);
   const token = text.slice(tokenStart);
   if (token.includes("/") || token.startsWith(".") || token.startsWith("~")) {
     completePath(text, tokenStart, token);
@@ -252,25 +277,43 @@ async function complete(): Promise<void> {
 
   // 空词不列，否则一次 Tab 就把所有全局名刷出来
   if (!word) return;
-  const items = await remote.complete(word);
-  if (items.length) completeNames(start, word, items);
+  const items = (await remote.complete(word)).map((name) => ({ text: name }));
+  if (items.length) openMenu(start, word, items);
   else completePath(text, tokenStart, token);
 }
 
-function completeNames(start: number, word: string, items: string[]): void {
+async function completeInShell(line: string, start: number): Promise<void> {
+  const items = await shellCompletions(line);
   if (!items.length) return;
-  let fill = items[0]!;
-  for (const item of items) {
-    while (!item.startsWith(fill)) fill = fill.slice(0, -1);
+  const word = editor.text.slice(start, editor.cursor);
+  // 已经处在没闭合的引号里：fish 给的是原文，直接放进去，别再套一层
+  const quoted = openQuote(line) !== null;
+  const fill = (text: string): string => (quoted ? text : escapeShellWord(text));
+  if (items.length === 1) {
+    const raw = items[0]!.text;
+    const suffix = quoted || raw.endsWith("/") ? "" : " ";
+    applyCompletion(start, word.length, fill(raw) + suffix);
+    redraw();
+    return;
   }
-  if (fill.length > word.length) {
+  openMenu(start, word, items.map((item) => ({ text: fill(item.text), desc: item.desc })));
+}
+
+function openMenu(start: number, word: string, items: MenuItem[]): void {
+  if (!items.length) return;
+  let fill = items[0]!.text;
+  for (const item of items) {
+    while (!item.text.startsWith(fill)) fill = fill.slice(0, -1);
+  }
+  // 补到引号中间的前缀会把词截断，这种时候直接开菜单
+  if (fill.length > word.length && !/['"]/.test(fill)) {
     applyCompletion(start, word.length, fill);
     redraw();
     return;
   }
   // 和 fish 一样：菜单一打开就选中第一个，并落进输入行
-  applyCompletion(start, word.length, items[0]!);
-  menu = { items, selected: 0, start, length: items[0]!.length, text: editor.text, cursor: editor.cursor };
+  applyCompletion(start, word.length, items[0]!.text);
+  menu = { items, selected: 0, start, length: items[0]!.text.length, text: editor.text, cursor: editor.cursor };
   redraw();
 }
 

@@ -89,6 +89,15 @@ function walk(node: SyntaxNode, fn: (n: SyntaxNode) => boolean | void): void {
   for (let c = node.firstChild; c; c = c.nextSibling) walk(c, fn);
 }
 
+function shellTemplate(node: SyntaxNode, code: string): { tag: SyntaxNode; tpl: SyntaxNode } | null {
+  if (node.name !== "TaggedTemplateExpression") return null;
+  const tag = node.firstChild;
+  const tpl = tag?.nextSibling;
+  if (!tag || tag.name !== "VariableName" || code.slice(tag.from, tag.to) !== "$") return null;
+  if (!tpl || tpl.name !== "TemplateString") return null;
+  return { tag, tpl };
+}
+
 export function highlight(code: string): Token[] {
   const tree = parser.parse(code);
   const tokens: Token[] = [];
@@ -98,11 +107,9 @@ export function highlight(code: string): Token[] {
   });
 
   walk(tree.topNode, (node) => {
-    if (node.name !== "TaggedTemplateExpression") return;
-    const tag = node.firstChild;
-    const tpl = tag?.nextSibling;
-    if (!tag || tag.name !== "VariableName" || code.slice(tag.from, tag.to) !== "$") return;
-    if (!tpl || tpl.name !== "TemplateString") return;
+    const shell = shellTemplate(node, code);
+    if (!shell) return;
+    const { tag, tpl } = shell;
     tokens.push({ type: "tag", start: tag.from, end: tag.to });
     const open = tpl.from;
     const close = tpl.to - 1;
@@ -118,6 +125,27 @@ export function highlight(code: string): Token[] {
   });
 
   return tokens.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+// 光标所在的 shell 段；在 ${…} 里就还算 JS。返回的是引号之间的范围
+export function shellAt(code: string, cursor: number): { start: number; end: number } | null {
+  let found: { start: number; end: number } | null = null;
+  walk(parser.parse(code).topNode, (node) => {
+    if (found) return false;
+    const shell = shellTemplate(node, code);
+    if (!shell) return;
+    const { tpl } = shell;
+    const start = tpl.from + 1;
+    const closed = tpl.to > start && code[tpl.to - 1] === "`";
+    const end = closed ? tpl.to - 1 : tpl.to;
+    if (cursor < start || cursor > end) return;
+    for (let c = tpl.firstChild; c; c = c.nextSibling) {
+      if (c.name === "Interpolation" && cursor >= c.from && cursor <= c.to) return;
+    }
+    found = { start, end };
+    return false;
+  });
+  return found;
 }
 
 // 最后一条语句是不是表达式（是的话连 undefined 也当结果打印）

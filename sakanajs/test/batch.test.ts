@@ -63,10 +63,17 @@ test("prints the value of an expression", () => {
   assert.equal(r.stderr, "");
 });
 
-test("prints what the command printed, not its undefined result", () => {
+test("prints the value as well as what the command printed", () => {
   const r = batch("await $`echo hello`");
   assert.equal(r.status, 0);
-  assert.equal(r.stdout, "hello\n");
+  assert.match(r.stdout, /^hello\nProcessOutput \{/);
+});
+
+test("prints a captured process output when it is referenced again", () => {
+  assert.match(batch("globalThis.p = await $`echo 1`").stdout, /^1\nProcessOutput \{/);
+  const again = batch("p");
+  assert.match(again.stdout, /^ProcessOutput \{/);
+  assert.match(again.stdout, /stdout: '1\\n'/);
 });
 
 test("declarations stay quiet, expression results do not", () => {
@@ -139,6 +146,6 @@ test("runs a file with -f, and stdin with -f -", () => {
 test("escaped shell words survive $`…`", () => {
   for (const word of ["fi le.txt", "a*b", "b's", "a`b", "a${x}b"]) {
     const code = `$\`printf '%s' ${escapeShellWord(word)}\``;
-    assert.equal(batch(code).stdout, word, code);
+    assert.ok(batch(code).stdout.startsWith(word), code);
   }
 });

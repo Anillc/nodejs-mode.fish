@@ -5,7 +5,7 @@ import { isExpressionResult } from "./highlight.ts";
 import { Evaluator } from "./eval.ts";
 import { args } from "./args.ts";
 import { applyEnv } from "./state.ts";
-import { formatError, formatResult, isProcessOutput } from "./output.ts";
+import { formatError, formatResult } from "./output.ts";
 import { createRpcSpawn, encode, type ClientMessage, type DaemonMessage } from "./protocol.ts";
 
 function requireSocket(): string {
@@ -63,10 +63,8 @@ async function handleEval(code: string, send: Send): Promise<void> {
   sink = (stream, data) => send({ t: "out", stream, data });
   try {
     const value = await evaluator.run(code, ac);
-    if (!isProcessOutput(value)) {
-      const text = formatResult(value, colors, isExpressionResult(code));
-      if (text) sink("stdout", text);
-    }
+    const text = formatResult(value, colors, isExpressionResult(code));
+    if (text) sink("stdout", text);
     const status = typeof process.exitCode === "number" ? process.exitCode : 0;
     process.exitCode = 0;
     send({ t: "done", ok: true, code: status, cwd: process.cwd(), env: { ...process.env } });

@@ -2,5 +2,3 @@
 /result
 /result-*
 /.tmp
-/nodejs-mode/dist
-/nodejs-mode/node_modules

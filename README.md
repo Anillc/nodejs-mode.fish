@@ -1,6 +1,6 @@
 <div align="center">
 
-# nodejs-mode.fish
+# sakanajs
 
 **Press `Ctrl-X` and your fish prompt becomes a Node.js REPL.**
 
@@ -18,7 +18,7 @@ and when you go back to fish, the working directory and environment are still th
 </div>
 
 ```console
-nodejs-mode.fish  via node v24.21.0
+sakanajs  via node v24.21.0
 ❯                       # press Ctrl-X here
 js ❯ const t = await $`uname -s`
 Linux
@@ -30,20 +30,30 @@ js ❯ n + 1
 js ❯ _.chunk([1, 2, 3, 4], 2)
 [ [ 1, 2 ], [ 3, 4 ] ]
 js ❯ (Ctrl-D)
-nodejs-mode.fish  via node v24.21.0
+sakanajs  via node v24.21.0
 ❯
 ```
 
 ## Install
 
 ```fish
-npm --prefix nodejs-mode install
-npm --prefix nodejs-mode run build
-ln -s (realpath conf.d/nodejs-mode.fish) ~/.config/fish/conf.d/
+npm i -g sakanajs
+fisher install Anillc/sakanajs   # or: omf install Anillc/sakanajs
 exec fish
 ```
 
-- requires `node >= 22.18`; `npm run build` compiles `src/` to `dist/` with tsc
+The fish side looks for the `sakanajs` command on `PATH`.
+
+Working on the plugin itself:
+
+```fish
+npm --prefix sakanajs ci
+npm --prefix sakanajs run build
+set -gx PATH (realpath sakanajs/bin) $PATH
+fisher install (realpath .)
+```
+
+- requires `node >= 22.18` (the npm package ships the built `lib/`, so users don't need tsc)
 - requires `fish >= 4.0` (developed on 4.9.3)
 - dependencies are managed with npm; there's a `flake.nix`, so `direnv allow` or `nix develop` works too
 
@@ -75,14 +85,15 @@ exec fish
 
 ## Batch mode
 
-`nodejs-mode` is also a command: the same entry point as `Ctrl-X`, usable anywhere in fish.
+The fish plugin also gives you a `sakanajs` function — the same entry point as `Ctrl-X` — that runs the
+`sakanajs` executable (what npm installs).
 
 ```console
-$ nodejs-mode                     # enter the repl (same as Ctrl-X)
-$ nodejs-mode -c '1 + 1'          # one command
+$ sakanajs                     # enter the repl (same as Ctrl-X)
+$ sakanajs -c '1 + 1'          # one command
 2
-$ nodejs-mode build.ts            # one file — "$", "_", shelljs and TypeScript included
-$ echo '40 + 2' | nodejs-mode     # code on stdin
+$ sakanajs build.ts            # one file — "$", "_", shelljs and TypeScript included
+$ echo '40 + 2' | sakanajs     # code on stdin
 42
 ```
 
@@ -104,7 +115,7 @@ daemon (measured). What you get back is a prompt that is always authoritative.
 ## Architecture
 
 ```
-Ctrl-X ─▶ nodejs-mode-enter ─▶ boot.ts (paints the prompt first) ─▶ cli.ts
+Ctrl-X ─▶ sakanajs-enter ─▶ boot.ts (paints the prompt first) ─▶ cli.ts
               ▲                                                    │
               │                                                    ├─ eval  ─▶ daemon (variables / cwd / env live here)
               │                                                    └─ spawn ─▶ child process (bare commands get a real tty)
@@ -130,16 +141,16 @@ unix socket.
 ## Development
 
 ```fish
-npm --prefix nodejs-mode run build         # tsc -> dist/
-npm --prefix nodejs-mode run typecheck     # tsc --noEmit
-npm --prefix nodejs-mode test          # build + node --test
+npm --prefix sakanajs run build         # tsc -> lib/
+npm --prefix sakanajs run typecheck     # tsc --noEmit
+npm --prefix sakanajs test          # build + node --test
 ```
 
 pty regression (drives a real fish in a pty and dumps the screen):
 
 ```fish
-node nodejs-mode/scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]'
-node nodejs-mode/scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]' two vi
+node sakanajs/scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]'
+node sakanajs/scripts/pty-drive.mjs '[{"d":400,"s":"\u0018"},{"d":900,"s":"1 + 1\r"},{"d":600,"s":"\u0004"}]' two vi
 ```
 
 `\u0018` is `Ctrl-X`, `\u0004` is `Ctrl-D`; the third argument `two` / `three` switches to a multi-line
@@ -151,34 +162,3 @@ fish inside the harness runs with `--no-config`, and it repaints its prompt diff
 marker lines and never moves the cursor up) than a real, fully configured shell. So **cursor geometry
 can't be judged there** — check it in a real terminal.
 
-## Layout
-
-```
-conf.d/            startup: repo root, the autoload path, the Ctrl-X binding, fish_exit cleanup
-functions/         autoloaded: nodejs-mode, nodejs-mode-enter, the __nodejs_mode_* helpers
-nodejs-mode/       the node package (npm, tsc)
-  bin/             nodejs-mode / nodejs-mode-daemon launchers
-  dist/            tsc output, built not committed
-  src/boot.ts      entry: -c, or the header + js ❯ first, then loads everything else
-  src/batch.ts     -c/-f: run once through the session daemon, print the value, exit 0/1
-  src/cli.ts       the client: connect, raw mode, key loop, redraw, exit, state write-back
-  src/editor.ts    line buffer + key handling + history
-  src/highlight.ts Lezer parsing + shell-fragment colouring + await rewrite + name collection
-  src/fish.ts      fish's own completion (complete -C) and shell quoting, for $`…`
-  src/render.ts    everything ANSI: prompt, colours, wrapping, cursor placement, menu
-  src/keys.ts      byte stream -> key events
-  src/width.ts     display width (string-width)
-  src/eval.ts      persistent context + zx shell + require/cd + AbortSignal (in the daemon)
-  src/ts.ts        strip TypeScript types + rewrite static imports
-  src/daemon.ts    the per-session daemon: socket, pid file, cwd/env state, abort
-  src/remote.ts    client side: NDJSON connection + local spawn
-  src/protocol.ts  message types + the stand-in for a remote ChildProcess
-  src/state.ts     turns the cwd/env diff into fish code / applies an env snapshot
-  src/output.ts    rendering of errors and values (shared by client and daemon)
-  src/args.ts      CLI arguments (node:util parseArgs)
-  test/            node --test
-  scripts/         the real-pty regression driver (script + @xterm/headless)
-docs/demo.cast     the recording the GIF is generated from (agg docs/demo.cast docs/demo.gif)
-docs/demo.gif      the demo above, also playable at asciinema.org/a/1270822
-flake.nix          two packages: nodejs-mode-runtime (the node side) and nodejs-mode (this plugin)
-```

@@ -183,7 +183,7 @@ export class Evaluator {
       script = this.compile(prepared);
     }
     this.fresh = new Set();
-    const result: unknown = script.runInThisContext();
+    const result: unknown = script.runInThisContext({ breakOnSigint: true });
     if (result && typeof (result as { then?: unknown }).then === "function") {
       // a process started earlier keeps running in the background: hand it over as a value, do not await it
       const background = !this.fresh.has(result as object) && isRunning(result);

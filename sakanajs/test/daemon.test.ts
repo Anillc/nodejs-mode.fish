@@ -144,6 +144,52 @@ describe("daemon", () => {
     }
   });
 
+  it("stops a pending await on request", async () => {
+    const sock = path.join(tmp, "abort-await.sock");
+    const { cp } = start(sock);
+    try {
+      assert.ok(await waitFor(() => isSocket(sock)), "socket did not appear");
+      const r = await Remote.connect(sock);
+      const started = Date.now();
+      let err = "";
+      const p = r.eval("await new Promise(() => {})", root, process.env, (_s, d) => (err += d));
+      await sleep(300);
+      r.sendAbort();
+      await p;
+      assert.ok(Date.now() - started < 3000, "abort did not cut the await short");
+      assert.match(err, /interrupted by/);
+      let out = "";
+      await r.eval("1 + 1", root, process.env, (_s, d) => (out += d));
+      assert.match(out, /2/, "daemon unusable after an abort");
+      r.close();
+    } finally {
+      cp.kill("SIGTERM");
+    }
+  });
+
+  it("stops a synchronous loop on request", async () => {
+    const sock = path.join(tmp, "abort-loop.sock");
+    const { cp } = start(sock);
+    try {
+      assert.ok(await waitFor(() => isSocket(sock)), "socket did not appear");
+      const r = await Remote.connect(sock);
+      const started = Date.now();
+      let err = "";
+      const p = r.eval("while (true) {}", root, process.env, (_s, d) => (err += d));
+      await sleep(300);
+      r.sendAbort();
+      await p;
+      assert.ok(Date.now() - started < 3000, "abort did not cut the loop short");
+      assert.match(err, /interrupted by/);
+      let out = "";
+      await r.eval("1 + 1", root, process.env, (_s, d) => (out += d));
+      assert.match(out, /2/, "daemon unusable after an abort");
+      r.close();
+    } finally {
+      cp.kill("SIGTERM");
+    }
+  });
+
   it("refuses to run without --socket", async () => {
     const cp = spawn(process.execPath, [path.join(root, "lib/boot.js"), "--daemon"], { stdio: ["ignore", "pipe", "pipe"] });
     let err = "";

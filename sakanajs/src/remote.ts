@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import net from "node:net";
 import process from "node:process";
 import { spawn, type ChildProcess, type StdioOptions } from "node:child_process";
@@ -17,9 +18,11 @@ export class Remote {
   private reqId = 0;
   private readonly completing = new Map<number, (items: string[]) => void>();
   private closed = false;
+  private readonly path: string;
 
-  constructor(sock: net.Socket) {
+  constructor(sock: net.Socket, path: string) {
     this.sock = sock;
+    this.path = path;
     sock.setEncoding("utf8");
     sock.on("data", (chunk: string) => this.receive(chunk));
     sock.on("close", () => this.abort("daemon connection closed"));
@@ -39,7 +42,7 @@ export class Remote {
   static connect(path: string): Promise<Remote> {
     return new Promise((resolve, reject) => {
       const sock = net.connect(path);
-      sock.once("connect", () => resolve(new Remote(sock)));
+      sock.once("connect", () => resolve(new Remote(sock, path)));
       sock.once("error", reject);
     });
   }
@@ -134,6 +137,13 @@ export class Remote {
 
   sendAbort(): void {
     this.send({ t: "abort" });
+    // a synchronous loop cannot read the socket: interrupt the daemon itself
+    try {
+      const pid = Number(fs.readFileSync(`${this.path}.pid`, "utf8").trim());
+      if (pid > 0) process.kill(pid, "SIGINT");
+    } catch {
+      /* no pid file, no daemon to interrupt */
+    }
   }
 
   get isClosed(): boolean {

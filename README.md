@@ -78,7 +78,7 @@ fisher install (realpath .)
 | `Ctrl-D` | leave, back to fish |
 | `Enter` (completion menu open) | accept the highlighted candidate and close the menu, **without running it** — press again to run (same as fish) |
 | `Enter` on an empty line | open a fresh `js ❯` line, stay in the mode |
-| `Ctrl-C` | keep what you typed, add `^C`, start a new line; while evaluating, it kills the command's child processes |
+| `Ctrl-C` | keep what you typed, add `^C`, start a new line; while evaluating, it interrupts the code (a stuck `await`, a synchronous loop) and kills its child processes |
 | `Tab` | completion (see above) — inside `` $`...` `` fish completes it |
 | `Up` / `Down` | history (stored separately from fish's) |
 | `Ctrl-A/E/B/F/K/U/W` | line editing |
@@ -128,7 +128,7 @@ unix socket.
 
 ## Known limitations
 
-- `Ctrl-C` only kills child processes; a plain `await new Promise(...)` can't be interrupted.
+- `Ctrl-C` interrupts the evaluation, not a promise somebody else is already awaiting: a background process started by an earlier command keeps running (until the next `Ctrl-C`).
 - If the daemon dies, the command in flight is lost. The repl starts a new one and says so (earlier variables are gone) — retype it.
 - Interactive children need `$({ stdio: "inherit" })` to get the terminal; without it they see a pipe and `vim` / `less` degrade to a dumb terminal.
 - Anything that reads stdin, like `question()`, doesn't work: the daemon's stdin is `/dev/null`.

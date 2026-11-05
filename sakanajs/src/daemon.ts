@@ -69,6 +69,13 @@ let activeAbort: AbortController | null = null;
 // is the other side a terminal: no colours when -c goes through a pipe
 let colors = true;
 
+// Ctrl-C has to stop the await too, not only the child processes (node's repl reports the same thing)
+function interrupted(): Error {
+  const err = new Error("Script execution was interrupted by `SIGINT`");
+  (err as NodeJS.ErrnoException).code = "ERR_SCRIPT_EXECUTION_INTERRUPTED";
+  return err;
+}
+
 async function handleEval(code: string, send: Send): Promise<void> {
   const ac = new AbortController();
   activeAbort = ac;
@@ -80,8 +87,11 @@ async function handleEval(code: string, send: Send): Promise<void> {
   ac.signal.addEventListener("abort", onAbort, { once: true });
   // keep the sink between rounds: a process started late still has output to deliver
   sink = (stream, data) => send({ t: "out", stream, data });
+  const stopped = new Promise<never>((_, reject) => {
+    ac.signal.addEventListener("abort", () => reject(interrupted()), { once: true });
+  });
   try {
-    const { value } = await evaluator.run(code, ac);
+    const { value } = await Promise.race([evaluator.run(code, ac), stopped]);
     const text = formatResult(value, colors, isExpressionResult(code));
     if (text) sink("stdout", text);
     await new Promise((resolve) => setImmediate(resolve));
@@ -150,9 +160,11 @@ function cleanup(): void {
 }
 
 process.on("exit", cleanup);
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+for (const sig of ["SIGTERM", "SIGHUP"] as const) {
   process.on(sig, () => process.exit(0));
 }
+// SIGINT interrupts a running script (breakOnSigint) or is a no-op, it must never kill the daemon
+process.on("SIGINT", () => {});
 // internal notes belong in the log, not on the screen
 process.on("warning", (w: Error) => {
   if (w.name === "ExperimentalWarning" || w.name === "PromiseRejectionHandledWarning") return;

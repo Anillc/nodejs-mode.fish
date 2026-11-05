@@ -1,3 +1,4 @@
+import process from "node:process";
 import { parseArgs } from "node:util";
 
 export interface Args {
@@ -12,7 +13,7 @@ export interface Args {
   parent?: string;
 }
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
   strict: false,
   allowPositionals: true,
   options: {
@@ -28,4 +29,9 @@ const { values } = parseArgs({
   },
 });
 
+if (values.socket === undefined && process.env.SAKANAJS_SOCKET) {
+  values.socket = process.env.SAKANAJS_SOCKET;
+}
+
 export const args = values as Args;
+export { positionals };

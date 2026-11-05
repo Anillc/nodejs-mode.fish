@@ -26,13 +26,11 @@ const out = process.stdout;
 const inp = process.stdin;
 
 const CONTINUE = 42;
-// cannot reach the daemon: fish sees this, cleans up, restarts it and retries the round
-const CONNECT_FAILED = 43;
 
 function requireSocket(): string {
   const v = args.socket;
   if (!v) {
-    process.stderr.write("sakanajs: this repl needs --socket (daemon mode only)\n");
+    process.stderr.write("sakanajs: this repl needs a session socket\n");
     process.exit(2);
   }
   return v;
@@ -133,25 +131,37 @@ function pathCompletion(text: string, cursor: number): string | null {
 let remote: Remote;
 try {
   remote = await Remote.connect(socketPath);
-} catch (e) {
-  // erase the header + prompt already painted, do not leave half a block behind
-  const up = headerLines(args.header).length;
-  out.write(`${cursorTo(0)}${up > 0 ? cursorUp(up) : ""}${eraseDown}`);
-  out.write(`${yellow("sakanajs: cannot reach the daemon")}\r\n`);
-  out.write(`${yellow(`  socket: ${socketPath}`)}\r\n`);
-  out.write(`${yellow(`  ${e instanceof Error ? e.message : String(e)}`)}\r\n`);
-  out.write(`${yellow("  restarting it...")}\r\n`);
-  inp.setRawMode?.(false);
-  process.exit(CONNECT_FAILED);
+} catch {
+  const { ensureDaemon } = await import("./session.ts");
+  try {
+    await ensureDaemon(socketPath);
+    remote = await Remote.connect(socketPath);
+  } catch (e) {
+    // erase the header + prompt already painted, do not leave half a block behind
+    const up = headerLines(args.header).length;
+    out.write(`${cursorTo(0)}${up > 0 ? cursorUp(up) : ""}${eraseDown}`);
+    out.write(`${yellow("sakanajs: cannot reach the daemon")}\r\n`);
+    out.write(`${yellow(`  socket: ${socketPath}`)}\r\n`);
+    out.write(`${yellow(`  ${e instanceof Error ? e.message : String(e)}`)}\r\n`);
+    inp.setRawMode?.(false);
+    process.exit(1);
+  }
 }
 
 let activeRemote: Remote | null = null;
 
 async function runCode(code: string): Promise<void> {
   if (remote.isClosed) {
-    out.write(`${yellow("sakanajs: lost the daemon, restarting it...")}\n`);
-    inp.setRawMode?.(false);
-    process.exit(CONNECT_FAILED);
+    const { ensureDaemon } = await import("./session.ts");
+    try {
+      await ensureDaemon(socketPath);
+      remote = await Remote.connect(socketPath);
+      out.write(`${yellow("sakanajs: the daemon restarted, earlier variables are gone")}\n`);
+    } catch {
+      out.write(`${yellow("sakanajs: lost the daemon")}\n`);
+      inp.setRawMode?.(false);
+      process.exit(1);
+    }
   }
   inp.setRawMode?.(false);
   activeRemote = remote;

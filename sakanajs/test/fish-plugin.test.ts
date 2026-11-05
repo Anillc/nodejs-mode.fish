@@ -12,28 +12,34 @@ const hasFish = spawnSync("fish", ["--version"], { stdio: "ignore" }).status ===
 const runFish = (dir: string, body: string): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } => {
   const home = fs.mkdtempSync(path.join(dir, "xdg-"));
   fs.mkdirSync(path.join(home, "data-dirs"), { recursive: true });
-  for (const sub of ["conf.d", "functions"]) {
-    fs.mkdirSync(path.join(home, "fish", sub), { recursive: true });
-    fs.cpSync(path.join(root, "..", sub), path.join(home, "fish", sub), { recursive: true });
-  }
-  return spawnSync("fish", ["-c", `set -gx SAKANAJS_RUNTIME_DIR ${dir}\n${body}`], {
+  fs.mkdirSync(path.join(home, "fish", "conf.d"), { recursive: true });
+  fs.cpSync(path.join(root, "..", "conf.d"), path.join(home, "fish", "conf.d"), { recursive: true });
+  const script = [
+    `set -gx SAKANAJS_RUNTIME_DIR ${dir}`,
+    `source ${path.join(home, "fish/conf.d/sakanajs.fish")}`,
+    body,
+  ].join("\n");
+  return spawnSync("fish", ["--no-config", "-c", script], {
     encoding: "utf8",
     timeout: 20000,
-    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, XDG_DATA_DIRS: path.join(home, "data-dirs"), PATH: `${path.join(root, "bin")}:${process.env.PATH}` },
+    env: {
+      ...process.env,
+      HOME: home,
+      XDG_CONFIG_HOME: home,
+      XDG_DATA_DIRS: path.join(home, "data-dirs"),
+      PATH: `${path.join(root, "bin")}:${process.env.PATH}`,
+    },
   }) as ReturnType<typeof spawnSync> & { stdout: string; stderr: string };
 };
 
 describe("fish plugin", { skip: hasFish ? false : "fish not installed" }, () => {
-  it("reuses a live daemon instead of starting another", () => {
+  it("keeps one daemon and shares state across calls", () => {
     const dir = fs.mkdtempSync(path.join(scratch, "fish-"));
     const script = `
-      set -l s1 (__sakanajs_ensure_daemon); or exit 11
-      __sakanajs_daemon_alive $s1; or exit 12
-      set -l s2 (__sakanajs_ensure_daemon); or exit 13
-      set -l s3 (__sakanajs_ensure_daemon); or exit 14
-      test "$s1" = "$s2"; or exit 15
-      test "$s2" = "$s3"; or exit 16
-      set -l n (pgrep -f -- "--daemon --socket \$s1" | count)
+      sakanajs -c 'globalThis.n = 20'; or exit 11
+      sakanajs -c 'n + 22'; or exit 12
+      set -l n (pgrep -f -- "--daemon --socket \$SAKANAJS_SOCKET" | count)
+      test $n -eq 1; or exit 13
       echo "ok daemons=\$n"
     `;
     try {
@@ -45,7 +51,7 @@ describe("fish plugin", { skip: hasFish ? false : "fish not installed" }, () => 
     }
   });
 
-  it("runs code and files through the session daemon", () => {
+  it("runs code, stdin and files through the session daemon", () => {
     const dir = fs.mkdtempSync(path.join(scratch, "fish-run-"));
     const file = path.join(dir, "s.ts");
     fs.writeFileSync(file, 'const who: string = "file"\nwho + " ok"\n');
@@ -55,9 +61,6 @@ describe("fish plugin", { skip: hasFish ? false : "fish not installed" }, () => 
       sakanajs '6 * 7'; or exit 23
       echo '40 + 2' | sakanajs; or exit 24
       sakanajs ${file}; or exit 25
-      set -l sock (__sakanajs_socket)
-      set -l n (pgrep -f -- "--daemon --socket \$sock" | count)
-      test $n -eq 1; or exit 26
     `;
     try {
       const r = runFish(dir, body);

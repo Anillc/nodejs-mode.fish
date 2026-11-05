@@ -112,13 +112,18 @@ test("asks for a value when -c has none", () => {
 test("refuses to run without a daemon to talk to", () => {
   const r = run(["-c", "1 + 1"]);
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /need --socket/);
+  assert.match(r.stderr, /no session socket/);
 });
 
-test("reports an unreachable daemon instead of hanging", () => {
-  const r = run(["-c", "1 + 1", "--socket", path.join(tmp, "nobody.sock")]);
-  assert.equal(r.status, 2);
-  assert.match(r.stderr, /cannot reach the daemon/);
+test("starts the session daemon when nothing listens yet", async () => {
+  const fresh = path.join(tmp, "fresh.sock");
+  const r = run(["-c", "1 + 1", "--socket", fresh]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, "2\n");
+  assert.ok(isSocket(fresh));
+  const pid = Number(fs.readFileSync(`${fresh}.pid`, "utf8"));
+  process.kill(pid, "SIGTERM");
+  await waitFor(() => !isSocket(fresh), 2000);
 });
 
 test("runs a file with -f, and stdin with -f -", () => {

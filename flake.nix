@@ -23,15 +23,13 @@
           root = ./.;
           fileset = pkgs.lib.fileset.unions [
             ./conf.d
-            ./functions
           ];
         };
         dontBuild = true;
         installPhase = ''
           runHook preInstall
-          mkdir -p $out/share/fish/vendor_conf.d $out/share/fish/vendor_functions.d
+          mkdir -p $out/share/fish/vendor_conf.d
           cp conf.d/*.fish $out/share/fish/vendor_conf.d/
-          cp functions/*.fish $out/share/fish/vendor_functions.d/
           runHook postInstall
         '';
       });

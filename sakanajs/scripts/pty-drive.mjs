@@ -12,12 +12,10 @@ const tmp = path.join(root, ".tmp", "pty");
 fs.rmSync(tmp, { recursive: true, force: true });
 for (const d of ["config", "data", "data-dirs", "state", "tmp", "home", "run"]) fs.mkdirSync(path.join(tmp, d), { recursive: true });
 
-// fisher copies conf.d/ and functions/ into the fish config dir; do the same
-for (const [from, to] of [["conf.d", "config/fish/conf.d"], ["functions", "config/fish/functions"]]) {
-  fs.mkdirSync(path.join(tmp, to), { recursive: true });
-  for (const f of fs.readdirSync(path.join(root, from))) {
-    fs.copyFileSync(path.join(root, from, f), path.join(tmp, to, f));
-  }
+// fisher copies conf.d/ into the fish config dir; do the same
+fs.mkdirSync(path.join(tmp, "config/fish/conf.d"), { recursive: true });
+for (const f of fs.readdirSync(path.join(root, "conf.d"))) {
+  fs.copyFileSync(path.join(root, "conf.d", f), path.join(tmp, "config/fish/conf.d", f));
 }
 
 const initFile = path.join(tmp, "init.fish");
@@ -32,10 +30,7 @@ fs.writeFileSync(
     "end",
     process.env.PTY_PLUGIN
       ? `source ${process.env.PTY_PLUGIN}`
-      : [
-          `set -g fish_function_path ${path.join(tmp, "config/fish/functions")} $fish_function_path`,
-          `source ${path.join(tmp, "config/fish/conf.d/sakanajs.fish")}`,
-        ].join("\n"),
+      : `source ${path.join(tmp, "config/fish/conf.d/sakanajs.fish")}`,
     process.argv[4] === "vi" ? "fish_vi_key_bindings" : "",
     "",
   ].join("\n"),

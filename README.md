@@ -85,8 +85,8 @@ fisher install (realpath .)
 
 ## Batch mode
 
-The fish plugin also gives you a `sakanajs` function — the same entry point as `Ctrl-X` — that runs the
-`sakanajs` executable (what npm installs).
+`sakanajs` is the command npm installs; run it with no arguments and it enters the repl the same way `Ctrl-X`
+does.
 
 ```console
 $ sakanajs                     # enter the repl (same as Ctrl-X)
@@ -97,11 +97,12 @@ $ echo '40 + 2' | sakanajs     # code on stdin
 42
 ```
 
-It always goes through the session daemon — the same one `Ctrl-X` uses: if there isn't one yet, the fish
-function starts it exactly the way `Ctrl-X` would, and `Ctrl-X` later picks it up with the state the script
-left behind. `-c <code>` and `-f <file>` (or `-f -` for stdin) are the flags underneath; `boot.ts` itself
-takes `--socket`, which is what the fish function hands it. There is no in-process mode: a command without a
-daemon to talk to is an error, not a second way to run code.
+It always goes through the session daemon — the same one `Ctrl-X` uses. The plugin exports `SAKANAJS_SOCKET`
+(`$XDG_RUNTIME_DIR/sakanajs-<uid>/sakanajs-<fish pid>.sock`) and `SAKANAJS_PARENT` when the shell starts; if
+nothing listens there yet, the client starts the daemon itself, and `Ctrl-X` later picks it up with the state
+the script left behind. `-c <code>`, `-f <file>` (or `-f -` for stdin), a bare file path and a bare expression
+are the ways to say what to run. There is no in-process mode: a command without a session socket is an error,
+not a second way to run code.
 
 ## Why every command goes back to fish
 
@@ -115,7 +116,7 @@ daemon (measured). What you get back is a prompt that is always authoritative.
 ## Architecture
 
 ```
-Ctrl-X ─▶ sakanajs-enter ─▶ boot.ts (paints the prompt first) ─▶ cli.ts
+Ctrl-X ─▶ __sakanajs_enter ─▶ boot.ts (paints the prompt first) ─▶ cli.ts
               ▲                                                    │
               │                                                    ├─ eval  ─▶ daemon (variables / cwd / env live here)
               │                                                    └─ spawn ─▶ child process (bare commands get a real tty)
@@ -128,7 +129,7 @@ unix socket.
 ## Known limitations
 
 - `Ctrl-C` only kills child processes; a plain `await new Promise(...)` can't be interrupted.
-- If the daemon dies, the command in flight is lost (you get a notice, exit 43, and fish restarts it) — retype it.
+- If the daemon dies, the command in flight is lost. The repl starts a new one and says so (earlier variables are gone) — retype it.
 - An interactive child in capture mode (`const o = await $`vim``) degrades to a dumb terminal, because stdout is a pipe.
 - Anything that reads stdin, like `question()`, doesn't work: the daemon's stdin is `/dev/null`.
 - A script run through the daemon that calls `process.exit()` takes the daemon down with it; the next command starts a new one.

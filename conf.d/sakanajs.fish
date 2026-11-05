@@ -1,4 +1,4 @@
-function __sakanajs_runtime_dir --description "pick a writable private directory for the socket"
+function __sakanajs_runtime_dir --description "pick a writable private directory for the session socket"
     if set -q SAKANAJS_RUNTIME_DIR; and test -n "$SAKANAJS_RUNTIME_DIR"
         echo $SAKANAJS_RUNTIME_DIR
         return 0
@@ -14,105 +14,6 @@ function __sakanajs_runtime_dir --description "pick a writable private directory
     return 1
 end
 
-function __sakanajs_daemon_dir --description "create the directory, check it, and say what failed"
-    set -l dir (__sakanajs_runtime_dir)
-    if test -z "$dir"
-        printf '\e[31msakanajs: no writable runtime directory\e[0m\n' >&2
-        printf '  none of XDG_RUNTIME_DIR=%s, TMPDIR=%s or /tmp is usable\n' "$XDG_RUNTIME_DIR" "$TMPDIR" >&2
-        printf '  set SAKANAJS_RUNTIME_DIR to point at one\n' >&2
-        return 1
-    end
-
-    if not test -d "$dir"
-        set -l err (command mkdir -p -m 700 $dir 2>&1)
-        if test $status -ne 0
-            printf '\e[31msakanajs: cannot create %s\e[0m\n' $dir >&2
-            test -n "$err"; and printf '  %s\n' $err >&2
-            return 1
-        end
-    end
-    if not test -w "$dir"
-        printf '\e[31msakanajs: %s is not writable\e[0m\n' $dir >&2
-        return 1
-    end
-
-    set -l sock $dir/sakanajs-$fish_pid.sock
-    set -l len (string length -- $sock)
-    if test $len -gt 100
-        printf '\e[31msakanajs: socket path is too long (%d bytes, the limit is about 104)\e[0m\n' $len >&2
-        printf '  %s\n' $sock >&2
-        printf '  set SAKANAJS_RUNTIME_DIR to a shorter directory\n' >&2
-        return 1
-    end
-
-    echo $dir
-end
-
-function __sakanajs_socket
-    set -l dir (__sakanajs_runtime_dir)
-    test -n "$dir"; or return 1
-    echo $dir/sakanajs-$fish_pid.sock
-end
-
-function __sakanajs_daemon_alive --description "is the daemon in the pid file next to the socket still alive (socket files outlive the process)"
-    set -l pid (command cat $argv[1].pid 2>/dev/null | string trim)
-    test -n "$pid"; or return 1
-    kill -0 $pid 2>/dev/null
-end
-
-function __sakanajs_ensure_daemon --description "start this session's daemon and echo its socket path"
-    set -l dir (__sakanajs_daemon_dir)
-    test -n "$dir"; or return 1
-
-    set -l sock $dir/sakanajs-$fish_pid.sock
-    set -l pidfile $sock.pid
-    set -l logfile $dir/sakanajs-$fish_pid.log
-
-    if test -S $sock
-        if __sakanajs_daemon_alive $sock
-            echo $sock
-            return 0
-        end
-        # the previous daemon is gone but its socket file is still there
-        command rm -f $sock $pidfile
-    end
-
-    set -l cli (command -s sakanajs)
-    test -n "$cli"; or return 1
-
-    # output goes to the log: it is what explains a failed start
-    command $cli --daemon --socket $sock --parent $fish_pid </dev/null >$logfile 2>&1 &
-    set -l pid $last_pid
-    set -g __sakanajs_daemon_pid $pid
-    disown 2>/dev/null
-
-    for i in (seq 300)
-        if test -S $sock
-            echo $sock
-            return 0
-        end
-        # do not wait forever if it already died
-        if not kill -0 $pid 2>/dev/null
-            break
-        end
-        sleep 0.01
-    end
-
-    printf '\e[31msakanajs: the daemon did not start\e[0m\n' >&2
-    printf '  socket: %s\n' $sock >&2
-    printf '  log:    %s\n' $logfile >&2
-    set -l log (command tail -n 20 $logfile 2>/dev/null)
-    if test -n "$log"
-        printf '  ---\n' >&2
-        printf '%s\n' $log >&2
-    else
-        printf '  (the daemon printed nothing)\n' >&2
-    end
-    command rm -f $sock $pidfile
-    set -e __sakanajs_daemon_pid
-    return 1
-end
-
 function __sakanajs_prompt_lines
     set -l out (fish_prompt 2>/dev/null | string collect -N)
     set -l n (string split \n -- $out | count)
@@ -121,20 +22,72 @@ function __sakanajs_prompt_lines
 end
 
 function __sakanajs_cleanup --on-event fish_exit
-    if set -q __sakanajs_daemon_pid
-        command kill $__sakanajs_daemon_pid 2>/dev/null
-        set -e __sakanajs_daemon_pid
-    end
-    set -l sock (__sakanajs_socket)
-    if test -n "$sock"
-        command rm -f $sock $sock.pid
-        # a clean exit leaves an empty log; drop those, keep the ones that say something
-        set -l logfile (string replace -r '\.sock$' .log $sock)
-        if test -f $logfile; and not test -s $logfile
-            command rm -f $logfile
-        end
+    set -q SAKANAJS_SOCKET; or return 0
+    command rm -f $SAKANAJS_SOCKET $SAKANAJS_SOCKET.pid
+    # a clean exit leaves an empty log; drop those, keep the ones that say something
+    if test -f $SAKANAJS_SOCKET.log; and not test -s $SAKANAJS_SOCKET.log
+        command rm -f $SAKANAJS_SOCKET.log
     end
 end
 
-bind \cx sakanajs-enter
-bind -M insert \cx sakanajs-enter
+if not set -q SAKANAJS_SOCKET
+    set -l dir (__sakanajs_runtime_dir)
+    if test -n "$dir"
+        set -gx SAKANAJS_SOCKET $dir/sakanajs-$fish_pid.sock
+    end
+end
+set -q SAKANAJS_PARENT; or set -gx SAKANAJS_PARENT $fish_pid
+
+function __sakanajs_enter --description "run the node.js repl in place (Ctrl-X)"
+    if not command -sq sakanajs
+        printf '\e[31msakanajs: the sakanajs command is not on PATH\e[0m\n' >&2
+        printf '  install it: npm i -g sakanajs\e[0m\n' >&2
+        return 1
+    end
+
+    set -l state (command mktemp 2>/dev/null)
+    if test -z "$state"
+        # even with a broken TMPDIR, cwd/env must be written back
+        set -l dir (__sakanajs_runtime_dir)
+        if test -n "$dir"
+            command mkdir -p -m 700 $dir 2>/dev/null
+            set state $dir/sakanajs-$fish_pid.state
+        end
+    end
+
+    set -l seed (commandline -b)
+    set -l lines (__sakanajs_prompt_lines)
+    commandline -r ''
+
+    # node repaints the whole prompt, so erase the block first (no duplicated header)
+    printf '\r'
+    if test $lines -gt 1
+        printf '\e[%dA' (math $lines - 1)
+    end
+    printf '\e[J'
+
+    while true
+        # grab the prompt once per round (node paints the header, the last line becomes js ❯)
+        set -l header (fish_prompt 2>/dev/null | string collect -N)
+        printf '\r\e[J'
+
+        command sakanajs --prepainted --state "$state" --seed "$seed" --header "$header"
+        set -l code $status
+
+        set seed ''
+
+        if test -s "$state"
+            source "$state"
+            rm -f "$state"
+        end
+
+        test $code -eq 42; or break
+    end
+
+    # done: node left the cursor on the last prompt line, repaint redraws the block
+    commandline -f repaint
+    return 0
+end
+
+bind \cx __sakanajs_enter
+bind -M insert \cx __sakanajs_enter

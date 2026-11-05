@@ -2,10 +2,11 @@ import fs from "node:fs";
 import net from "node:net";
 import process from "node:process";
 import { isExpressionResult } from "./highlight.ts";
-import { Evaluator } from "./eval.ts";
+import { Evaluator, type ShellHooks } from "./eval.ts";
 import { args } from "./args.ts";
 import { applyEnv } from "./state.ts";
 import { formatError, formatResult } from "./output.ts";
+import { spawn as spawnChild, spawnSync as spawnSyncChild, type ChildProcess } from "node:child_process";
 import { createRpcSpawn, encode, type ClientMessage, type DaemonMessage } from "./protocol.ts";
 
 function requireSocket(): string {
@@ -40,12 +41,28 @@ const patch = (stream: "stdout" | "stderr", real: RealWrite): RealWrite =>
 
 const { spawn: rpcSpawn, procs } = createRpcSpawn((msg) => active?.(msg as DaemonMessage));
 
-const evaluator = new Evaluator({
-  spawn: rpcSpawn as unknown as typeof import("node:child_process").spawn,
-  spawnSync: (() => {
-    throw new Error("spawnSync is not available in sakanajs");
-  }) as unknown as typeof import("node:child_process").spawnSync,
-});
+// the daemon owns the piped children: they outlive the short-lived client, so a background job keeps
+// running across rounds. Only commands that need the terminal go through the client, which has the tty.
+const local = new Set<ChildProcess>();
+const spawnLocal = ((cmd: string, args: string[] = [], opts: Record<string, unknown> = {}) => {
+  const child = spawnChild(cmd, args, {
+    stdio: (opts.stdio as "pipe" | "inherit" | undefined) ?? "pipe",
+    shell: (opts.shell as string | boolean | undefined) ?? false,
+    cwd: (opts.cwd as string | undefined) ?? process.cwd(),
+    env: (opts.env as NodeJS.ProcessEnv | undefined) ?? process.env,
+    detached: (opts.detached as boolean | undefined) ?? false,
+  });
+  local.add(child);
+  child.on("close", () => local.delete(child));
+  return child;
+}) as unknown as ShellHooks["spawn"];
+// .stdio("inherit") turns the option into an array, so both shapes have to go through the client
+const wantsTty = (stdio: unknown): boolean =>
+  stdio === "inherit" || (Array.isArray(stdio) && stdio.includes("inherit"));
+const spawnAny = ((cmd: string, args?: string[], opts: Record<string, unknown> = {}) =>
+  wantsTty(opts.stdio) ? rpcSpawn(cmd, args, opts) : spawnLocal(cmd, args, opts)) as unknown as ShellHooks["spawn"];
+
+const evaluator = new Evaluator({ spawn: spawnAny, spawnSync: spawnSyncChild });
 evaluator.install();
 
 let activeAbort: AbortController | null = null;
@@ -58,13 +75,16 @@ async function handleEval(code: string, send: Send): Promise<void> {
   // abort only reaches the daemon: child processes of this command have to be killed here
   const onAbort = (): void => {
     for (const proc of procs.values()) proc.kill("SIGTERM");
+    for (const child of local) child.kill("SIGTERM");
   };
   ac.signal.addEventListener("abort", onAbort, { once: true });
+  // keep the sink between rounds: a process started late still has output to deliver
   sink = (stream, data) => send({ t: "out", stream, data });
   try {
-    const value = await evaluator.run(code, ac);
+    const { value } = await evaluator.run(code, ac);
     const text = formatResult(value, colors, isExpressionResult(code));
     if (text) sink("stdout", text);
+    await new Promise((resolve) => setImmediate(resolve));
     const status = typeof process.exitCode === "number" ? process.exitCode : 0;
     process.exitCode = 0;
     send({ t: "done", ok: true, code: status, cwd: process.cwd(), env: { ...process.env } });
@@ -75,10 +95,6 @@ async function handleEval(code: string, send: Send): Promise<void> {
   } finally {
     ac.signal.removeEventListener("abort", onAbort);
     if (activeAbort === ac) activeAbort = null;
-    // late output (spawn data flushing) still needs somewhere to go
-    setImmediate(() => {
-      sink = null;
-    });
   }
 }
 
@@ -137,6 +153,14 @@ process.on("exit", cleanup);
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(sig, () => process.exit(0));
 }
+// internal notes belong in the log, not on the screen
+process.on("warning", (w: Error) => {
+  if (w.name === "ExperimentalWarning" || w.name === "PromiseRejectionHandledWarning") return;
+  realErr(`${w.name}: ${w.message}\n`);
+});
+process.on("unhandledRejection", (e: unknown) => {
+  realErr(`sakanajs: unhandled rejection: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}\n`);
+});
 process.on("uncaughtException", (e: Error) => {
   process.stderr.write(`sakanajs: daemon crashed: ${e?.stack ?? String(e)}\n`);
   process.exit(1);
@@ -179,7 +203,14 @@ const server = net.createServer((conn) => {
     }
   });
   conn.on("close", () => {
-    if (active === send) active = null;
+    if (active === send) {
+      active = null;
+      // nothing can be delivered any more; late output goes back to the log
+      sink = null;
+    }
+    for (const proc of procs.values()) {
+      if (proc.exitCode === null && proc.signalCode === null) proc.finish(null, "SIGHUP");
+    }
   });
   conn.on("error", () => {
     /* client went away */

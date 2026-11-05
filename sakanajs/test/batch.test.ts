@@ -34,12 +34,18 @@ const isSocket = (p: string): boolean => {
 type Run = ReturnType<typeof spawnSync> & { stdout: string; stderr: string };
 
 const run = (args: string[], extraEnv: NodeJS.ProcessEnv = {}): Run =>
-  spawnSync(process.execPath, [boot, ...args], { cwd: root, encoding: "utf8", env: { ...process.env, ...extraEnv } }) as Run;
+  spawnSync(process.execPath, [boot, ...args], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 20000,
+    env: { ...process.env, ...extraEnv },
+  }) as Run;
 
 const launch = (args: string[], input?: string): Run =>
   spawnSync(process.execPath, [boot, "--socket", sock, ...args], {
     cwd: root,
     encoding: "utf8",
+    timeout: 20000,
     input,
   }) as Run;
 
@@ -72,6 +78,13 @@ test("prints the value as well as what the command printed", () => {
 test("prints a captured process output when it is referenced again", () => {
   assert.match(batch("globalThis.p = await $`echo 1`").stdout, /^1\nProcessOutput \{/);
   const again = batch("p");
+  assert.match(again.stdout, /^ProcessOutput \{/);
+  assert.match(again.stdout, /stdout: '1\\n'/);
+});
+
+test("a process stored without await still settles", () => {
+  assert.match(batch("globalThis.q = $`echo 1`").stdout, /^1\nProcessOutput \{/);
+  const again = batch("q");
   assert.match(again.stdout, /^ProcessOutput \{/);
   assert.match(again.stdout, /stdout: '1\\n'/);
 });

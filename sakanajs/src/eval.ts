@@ -1,14 +1,15 @@
 import vm from "node:vm";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { spawn, spawnSync, type StdioOptions } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as zx from "zx";
 import shell from "shelljs";
 import lodash from "lodash";
 import { stripTypeScriptTypes } from "node:module";
 import { parser } from "@lezer/javascript";
 import type { SyntaxNode } from "@lezer/common";
-import { declaredNames, hasTopLevelAwait, isBareShellCommand, referencedNames, wrapForAwait } from "./highlight.ts";
+import { declaredNames, hasTopLevelAwait, referencedNames, wrapForAwait } from "./highlight.ts";
+import { isRunning } from "./output.ts";
 
 // commands print their own output once; the daemon renders return values
 shell.config.silent = true;
@@ -25,7 +26,7 @@ const streamLog = (entry: { kind: string; data?: Buffer }): void => {
   else if (entry.kind === "stderr") process.stderr.write(entry.data!);
 };
 
-function createShell(hooks: ShellHooks, stdio?: StdioOptions): Shell {
+function createShell(hooks: ShellHooks): Shell {
   return zx.$({
     spawn: hooks.spawn,
     spawnSync: hooks.spawnSync,
@@ -33,7 +34,6 @@ function createShell(hooks: ShellHooks, stdio?: StdioOptions): Shell {
     quiet: false,
     preferLocal: true,
     log: streamLog,
-    ...(stdio ? { stdio } : {}),
   }) as Shell;
 }
 
@@ -77,10 +77,20 @@ function propertiesOf(base: string): string[] {
   return [...names];
 }
 
+// keywords are not on globalThis, but they are the first thing you type
+const KEYWORDS = [
+  "async", "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete",
+  "do", "else", "enum", "export", "extends", "false", "finally", "for", "function", "get", "if", "implements",
+  "import", "in", "instanceof", "interface", "let", "new", "null", "of", "return", "set", "static", "super",
+  "switch", "this", "throw", "true", "try", "type", "typeof", "var", "void", "while", "yield",
+];
+
 export class Evaluator {
   private shell?: Shell;
-  private ttyShell?: Shell;
   private seq = 0;
+  // processes started by the code of the current round: those are awaited, older ones are just values
+  private fresh = new Set<object>();
+  private tracked?: Shell;
   // top-level const/let/function live in the global lexical scope, invisible to Object.keys(globalThis), so track them
   private readonly declared = new Set<string>();
   private req = createRequire(path.join(process.cwd(), "__sakanajs__.cjs"));
@@ -92,10 +102,22 @@ export class Evaluator {
     exposeGlobals();
   }
 
-  private ensureShell(tty: boolean): Shell {
-    const shell = tty ? (this.ttyShell ??= createShell(this.hooks, "inherit")) : (this.shell ??= createShell(this.hooks));
-    (globalThis as unknown as Record<string, unknown>).$ = shell;
-    return shell;
+  private ensureShell(): Shell {
+    const shell = (this.shell ??= createShell(this.hooks));
+    const tracked = (this.tracked ??= this.track(shell));
+    (globalThis as unknown as Record<string, unknown>).$ = tracked;
+    return tracked;
+  }
+
+  // remember what this round starts, so a promise from an earlier round is not awaited
+  private track(shell: Shell): Shell {
+    return new Proxy(shell, {
+      apply: (target, thisArg, argArray) => {
+        const result: unknown = Reflect.apply(target, thisArg, argArray);
+        if (result && typeof result === "object") this.fresh.add(result);
+        return result;
+      },
+    }) as Shell;
   }
 
   install(): void {
@@ -125,7 +147,10 @@ export class Evaluator {
   }
 
   complete(word: string, base?: string): string[] {
-    const names = base ? propertiesOf(base) : [...Object.keys(globalThis), ...this.declared];
+    // getOwnPropertyNames, not keys: console, process and friends are not enumerable
+    const names = base
+      ? propertiesOf(base)
+      : [...Object.getOwnPropertyNames(globalThis), ...KEYWORDS, ...this.declared];
     return [...new Set(names)].filter((name) => name.startsWith(word)).sort((a, b) => a.localeCompare(b));
   }
 
@@ -138,8 +163,8 @@ export class Evaluator {
     });
   }
 
-  async run(code: string, ac: AbortController): Promise<unknown> {
-    const shell = this.ensureShell(isBareShellCommand(code));
+  async run(code: string, ac: AbortController): Promise<{ value: unknown }> {
+    const shell = this.ensureShell();
     this.autoRequire(code);
     for (const name of declaredNames(code)) this.declared.add(name);
     const cfg = shell as unknown as Record<string, unknown>;
@@ -157,11 +182,14 @@ export class Evaluator {
       if (prepared === code) throw e;
       script = this.compile(prepared);
     }
+    this.fresh = new Set();
     const result: unknown = script.runInThisContext();
     if (result && typeof (result as { then?: unknown }).then === "function") {
-      return await (result as Promise<unknown>);
+      // a process started earlier keeps running in the background: hand it over as a value, do not await it
+      const background = !this.fresh.has(result as object) && isRunning(result);
+      return { value: background ? result : await (result as Promise<unknown>) };
     }
-    return result;
+    return { value: result };
   }
 }
 

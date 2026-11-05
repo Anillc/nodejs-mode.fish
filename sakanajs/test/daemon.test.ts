@@ -113,6 +113,10 @@ describe("daemon", () => {
       assert.deepEqual(await r.complete("fooB"), ["fooBar"]);
       assert.deepEqual(await r.complete("up", "os"), ["uptime"]);
       assert.ok((await r.complete("pw")).includes("pwd"));
+      const con = await r.complete("con");
+      assert.ok(con.includes("const"), "keywords complete");
+      assert.ok(con.includes("console"), "non-enumerable globals complete");
+      assert.ok((await r.complete("")).length > 50, "an empty word lists everything");
       r.close();
     } finally {
       cp.kill("SIGTERM");

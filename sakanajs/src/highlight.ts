@@ -145,7 +145,15 @@ export function shellAt(code: string, cursor: number): { start: number; end: num
     found = { start, end };
     return false;
   });
-  return found;
+  if (found) return found;
+  // the parser gives up on an unterminated backtick, but the segment is still being typed
+  const tick = code.lastIndexOf("`", cursor - 1);
+  if (tick < 0) return null;
+  // an odd number of backticks before it means this one closes a template
+  if (code.slice(0, tick).split("`").length % 2 === 0) return null;
+  const start = tick + 1;
+  if (cursor < start || code.indexOf("`", start) >= 0) return null;
+  return { start, end: cursor };
 }
 
 // is the last statement an expression (then even undefined is printed as a result)
@@ -245,18 +253,4 @@ export function rewriteForAsync(code: string, returnLast = false): string {
 
 export function wrapForAwait(code: string): string {
   return `(async () => {\n${rewriteForAsync(code, true)}\n})()`;
-}
-
-export function isBareShellCommand(code: string): boolean {
-  const tree = parser.parse(code);
-  const stmt = tree.topNode.firstChild;
-  if (!stmt || stmt.name !== "ExpressionStatement" || stmt.nextSibling) return false;
-  let expr: SyntaxNode | null = stmt.firstChild;
-  if (expr?.name === "AwaitExpression") {
-    expr = expr.lastChild;
-  }
-  if (!expr || expr.name !== "TaggedTemplateExpression") return false;
-  const tag = expr.firstChild;
-  if (!tag || tag.name !== "VariableName" || code.slice(tag.from, tag.to) !== "$") return false;
-  return expr.nextSibling === null;
 }

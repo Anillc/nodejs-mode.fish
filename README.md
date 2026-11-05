@@ -61,13 +61,13 @@ fisher install (realpath .)
 
 | | |
 |---|---|
-| **`$` is zx** | `` $`...` ``, `.pipe()`, `.nothrow()`, `.text()`, top-level `await`; a bare command gets `stdio: inherit`, so `vim` / `ssh` / `less` get a real tty |
+| **`$` is zx** | `` $`...` ``, `.pipe()`, `.nothrow()`, `.text()`, top-level `await`; stdio is zx's default (`pipe`), so output is captured — ask for the terminal with `$({ stdio: "inherit" })` for `vim` / `ssh` / `less` |
 | **Globals** | every zx export, every shelljs command, and `_` (lodash) — no imports needed |
 | **Auto-require** | a name that isn't defined anywhere in the global scope is tried as `require(name)` (resolved from the cwd), so `fs.readFileSync(...)` and `os.uptime()` just work |
 | **TypeScript** | type annotations, `enum`, `import type` — powered by Node's own `stripTypeScriptTypes`; no tsx or esbuild needed |
 | **import** | a static `import x from "y"` is rewritten to `await import()`; dynamic `import()` resolves from the cwd; `require("./x.ts")` works too |
 | **cwd / env** | changes made by `cd()` and `process.env` are written back to fish; a `cd` you do in fish is picked up when you re-enter |
-| **Completion** | Tab: declared names, globals, properties after `obj.`, and paths; multiple candidates are listed under the input line and Tab cycles through them (the current one is inverted). Inside `` $`...` `` it hands over to fish, so commands, flags and files come with their descriptions |
+| **Completion** | Tab: keywords, declared names, globals, properties after `obj.`, and paths; an empty line (or an empty `` $`...` ``) lists what is available without touching the line; multiple candidates are listed under the input line and Tab cycles through them (the current one is inverted). Inside `` $`...` `` it hands over to fish, so commands, flags and files come with their descriptions |
 | **State** | one daemon per fish session keeps variables and functions across commands, and is cleaned up on `fish_exit` |
 
 ## Keys
@@ -119,7 +119,7 @@ daemon (measured). What you get back is a prompt that is always authoritative.
 Ctrl-X ─▶ __sakanajs_enter ─▶ boot.ts (paints the prompt first) ─▶ cli.ts
               ▲                                                    │
               │                                                    ├─ eval  ─▶ daemon (variables / cwd / env live here)
-              │                                                    └─ spawn ─▶ child process (bare commands get a real tty)
+              │                                                    └─ spawn ─▶ child process (in the daemon; $({ stdio: "inherit" }) goes through the client)
               └──── fish repaint ◀── exit 42 ◀─────────────────────┘
 ```
 
@@ -130,7 +130,7 @@ unix socket.
 
 - `Ctrl-C` only kills child processes; a plain `await new Promise(...)` can't be interrupted.
 - If the daemon dies, the command in flight is lost. The repl starts a new one and says so (earlier variables are gone) — retype it.
-- An interactive child in capture mode (`const o = await $`vim``) degrades to a dumb terminal, because stdout is a pipe.
+- Interactive children need `$({ stdio: "inherit" })` to get the terminal; without it they see a pipe and `vim` / `less` degrade to a dumb terminal.
 - Anything that reads stdin, like `question()`, doesn't work: the daemon's stdin is `/dev/null`.
 - A script run through the daemon that calls `process.exit()` takes the daemon down with it; the next command starts a new one.
 - The daemon runs the code it was started with, so restart fish after editing the repo.

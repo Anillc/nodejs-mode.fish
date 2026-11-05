@@ -47,6 +47,10 @@ test("shellAt finds the shell segment under the cursor", () => {
   assert.equal(shellAt("x = `ls`", 6), null, "a plain template is not shell");
   const interp = "$`echo ${name} x`";
   assert.equal(shellAt(interp, interp.indexOf("name") + 1), null, "interpolation is javascript");
+  // the parser gives up on an unterminated backtick, but it is still a segment being typed
+  assert.deepEqual(shellAt("`", 1), { start: 1, end: 1 });
+  assert.deepEqual(shellAt("`git ch", 7), { start: 1, end: 7 });
+  assert.equal(shellAt("x = `ls`", 9), null, "the same one closed is javascript again");
 });
 
 test("incomplete input detection", () => {

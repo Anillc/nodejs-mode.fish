@@ -1,6 +1,6 @@
 import net from "node:net";
 import process from "node:process";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type StdioOptions } from "node:child_process";
 import { encode, type ClientMessage, type DaemonMessage, type SpawnOpts } from "./protocol.ts";
 
 export type OutputFn = (stream: "stdout" | "stderr", data: string) => void;
@@ -92,12 +92,12 @@ export class Remote {
   }
 
   private spawnChild(id: number, cmd: string, args: string[], opts: SpawnOpts): void {
-    const stdio = opts.stdio === "inherit" ? "inherit" : "pipe";
+    const stdio = Array.isArray(opts.stdio) ? (opts.stdio as StdioOptions) : opts.stdio === "inherit" ? "inherit" : "pipe";
     const child = spawn(cmd, args, {
-      cwd: process.cwd(),
-      env: process.env,
+      cwd: opts.cwd ?? process.cwd(),
+      env: (opts.env as NodeJS.ProcessEnv | undefined) ?? process.env,
       shell: opts.shell === true ? true : typeof opts.shell === "string" ? opts.shell : false,
-      stdio: stdio as "pipe" | "inherit",
+      stdio: stdio as StdioOptions,
     });
     this.children.set(id, child);
     child.stdout?.setEncoding("utf8");

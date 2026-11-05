@@ -264,6 +264,14 @@ async function complete(): Promise<void> {
       await completeInShell(line, wordStartAt(text, cursor));
       return;
     }
+    // nothing typed yet: list the commands fish knows about, files when it has nothing to say
+    const commands = await shellCompletions("");
+    const listed =
+      commands.length > 0
+        ? commands.map((item) => ({ text: escapeShellWord(item.text), desc: item.desc }))
+        : fileItems();
+    openMenu(cursor, "", listed, true);
+    return;
   }
 
   const word = /[\w$]*$/.exec(text.slice(0, cursor))![0];
@@ -286,9 +294,8 @@ async function complete(): Promise<void> {
   }
 
   // an empty word lists nothing, else one Tab dumps every global
-  if (!word) return;
   const items = (await remote.complete(word)).map((name) => ({ text: name }));
-  if (items.length) openMenu(start, word, items);
+  if (items.length) openMenu(start, word, items, word === "");
   else completePath(text, tokenStart, token);
 }
 
@@ -309,8 +316,35 @@ async function completeInShell(line: string, start: number): Promise<void> {
   openMenu(start, word, items.map((item) => ({ text: fill(item.text), desc: item.desc })));
 }
 
-function openMenu(start: number, word: string, items: MenuItem[]): void {
+function fileItems(): MenuItem[] {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(process.cwd());
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((name) => !name.startsWith("."))
+    .sort()
+    .map((name) => {
+      let dir = false;
+      try {
+        dir = fs.statSync(path.join(process.cwd(), name)).isDirectory();
+      } catch {
+        /* ignore */
+      }
+      return { text: dir ? `${name}/` : name };
+    });
+}
+
+function openMenu(start: number, word: string, items: MenuItem[], listOnly = false): void {
   if (!items.length) return;
+  // Tab on an empty line lists the candidates instead of putting the first one there
+  if (listOnly) {
+    menu = { items, selected: -1, start, length: 0, text: editor.text, cursor: editor.cursor };
+    redraw();
+    return;
+  }
   let fill = items[0]!.text;
   for (const item of items) {
     while (!item.text.startsWith(fill)) fill = fill.slice(0, -1);

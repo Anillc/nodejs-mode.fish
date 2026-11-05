@@ -33,5 +33,10 @@
   "files": [
     "bin",
     "lib"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Anillc/sakanajs.git"
+  },
+  "homepage": "https://github.com/Anillc/sakanajs#readme"
 }
